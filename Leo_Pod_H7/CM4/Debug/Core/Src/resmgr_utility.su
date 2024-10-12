@@ -1,0 +1,3 @@
+../Core/Src/resmgr_utility.c:33:6:MX_RESMGR_UTILITY_Init	8	static
+../Core/Src/resmgr_utility.c:49:13:MX_RESMGR_UTILITY_SendMsg	16	static
+../Core/Src/resmgr_utility.c:87:13:MX_RESMGR_UTILITY_Callback	16	static

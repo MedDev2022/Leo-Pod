@@ -1,0 +1,5 @@
+C:/Users/krinm/STM32CubeIDE/Leo_Pod/Leo_Pod_H7/Utilities/ResourcesManager/res_mgr.c:120:18:ResMgr_Init	24	static
+C:/Users/krinm/STM32CubeIDE/Leo_Pod/Leo_Pod_H7/Utilities/ResourcesManager/res_mgr.c:187:17:ResMgr_DeInit	16	static
+C:/Users/krinm/STM32CubeIDE/Leo_Pod/Leo_Pod_H7/Utilities/ResourcesManager/res_mgr.c:228:18:ResMgr_Request	32	static
+C:/Users/krinm/STM32CubeIDE/Leo_Pod/Leo_Pod_H7/Utilities/ResourcesManager/res_mgr.c:333:18:ResMgr_Release	24	static
+C:/Users/krinm/STM32CubeIDE/Leo_Pod/Leo_Pod_H7/Utilities/ResourcesManager/res_mgr.c:382:18:ResMgr_GetResContext	24	static
