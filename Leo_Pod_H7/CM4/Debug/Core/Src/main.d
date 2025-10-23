@@ -1,4 +1,4 @@
-Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
+Core/Src/main.o: ../Core/Src/main.cpp ../Core/Inc/main.h \
  ../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h \
  ../Core/Inc/stm32h7xx_hal_conf.h \
  ../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_rcc.h \
@@ -31,7 +31,10 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
  ../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_uart_ex.h \
  ../Core/Inc/resmgr_utility.h ../../Utilities/ResourcesManager/res_mgr.h \
  ../../Common/Inc/res_mgr_conf.h ../Core/Inc/main.h \
- ../Core/Inc/resmgr_utility.h
+ ../Core/Inc/resmgr_utility.h ../Core/Src/RPlens.h \
+ ../Core/Src/UartDevice.h ../Core/Src/uart.h ../Core/Src/IRay.h \
+ ../Core/Src/Client.h ../Core/Src/comm.h ../Core/Src/utils/utils.h \
+ ../Core/Src/Fpga.h ../Core/Src/LRX20A.h ../Core/Src/utils/Utils.h
 ../Core/Inc/main.h:
 ../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h:
 ../Core/Inc/stm32h7xx_hal_conf.h:
@@ -68,3 +71,13 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
 ../../Common/Inc/res_mgr_conf.h:
 ../Core/Inc/main.h:
 ../Core/Inc/resmgr_utility.h:
+../Core/Src/RPlens.h:
+../Core/Src/UartDevice.h:
+../Core/Src/uart.h:
+../Core/Src/IRay.h:
+../Core/Src/Client.h:
+../Core/Src/comm.h:
+../Core/Src/utils/utils.h:
+../Core/Src/Fpga.h:
+../Core/Src/LRX20A.h:
+../Core/Src/utils/Utils.h:

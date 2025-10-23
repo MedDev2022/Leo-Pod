@@ -30,10 +30,17 @@ extern "C" {
 #include "stm32h7xx_hal.h"
 #include "resmgr_utility.h"
 
-
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+
+
+static UART_HandleTypeDef huart1;
+static UART_HandleTypeDef huart2;
+static UART_HandleTypeDef huart3;
+static UART_HandleTypeDef huart4;
+
+
+
 
 /* USER CODE END Includes */
 
@@ -54,13 +61,20 @@ extern "C" {
 
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
-void MX_GPIO_Init(void);
 
 /* USER CODE BEGIN EFP */
 
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define BTN_FOCUS_NEAR_Pin GPIO_PIN_6
+#define BTN_FOCUS_NEAR_GPIO_Port GPIOC
+#define BTN_FOCUS_FAR_Pin GPIO_PIN_7
+#define BTN_FOCUS_FAR_GPIO_Port GPIOC
+#define BTN_ZOOM_OUT_Pin GPIO_PIN_8
+#define BTN_ZOOM_OUT_GPIO_Port GPIOC
+#define BTN_ZOOM_IN_Pin GPIO_PIN_9
+#define BTN_ZOOM_IN_GPIO_Port GPIOC
 #define USER_LED2_Pin GPIO_PIN_1
 #define USER_LED2_GPIO_Port GPIOE
 

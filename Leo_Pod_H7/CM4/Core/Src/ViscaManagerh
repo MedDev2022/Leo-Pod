@@ -1,0 +1,166 @@
+#ifndef VISCAMANAGER_H_
+#define VISCAMANAGER_H_
+#include <cstdint>
+#include <stdlib.h>
+#include "stm32h7xx_hal.h"
+
+#include "utils/Utils.h"
+
+// Define the VISCA commands for zoom and focus
+#define VISCA_ADDRESS 0x01  // Address of the camera
+#define VISCA_ZOOM_IN 0x81
+#define VISCA_ZOOM_OUT 0x91
+#define VISCA_FOCUS_NEAR 0x82
+#define VISCA_FOCUS_FAR 0x92
+
+// Set the baud rate for serial communication
+#define VISCA_BAUD_RATE 9600 // 115200 // 57600  // 38400 // 19200  // 4800, 2400,  9600
+
+typedef enum {
+	eIdle = 0,
+	eZoomIRQsent,
+	eZoomPosReceived,
+	eZoomPosError,
+	eZoomPosTimout,
+	eFocusIRQsent,
+	eFocusPosReceived,
+	eFocusPosError,
+	eFocusPosTimout
+} EViscaRX_Status;
+
+
+
+
+class DayCam
+{
+
+
+	uint8_t address_command[4] = 	{ 0x88, 0x30, 0x01, 0xFF };
+	uint8_t if_clear[5] = 			{ 0x88, 0x01, 0x00, 0x01, 0xFF };
+
+    uint8_t commandCancel[3] = { 0x81,0x21,0xFF };
+    const uint16_t delayTime = 250;   //Time between commands
+
+    // ZOOM 
+    uint8_t zoom_tele[6] = 	{ 0x81, 0x01, 0x04, 0x07, 0x02, 0xFF };   //Not exactly sure how this works yet
+    uint8_t zoom_wide[6] = 	{ 0x81, 0x01, 0x04, 0x07, 0x03, 0xFF };  //Not exactly sure how this works yet
+    uint8_t zoom_teleVar[6] = 	{ 0x81, 0x01, 0x04, 0x07, 0x25, 0xFF };  //Zoom In: 81 01 04 07 2x FF , where x is speed- 0(low)-7(hi);
+    uint8_t zoom_wideVar[6] = 	{ 0x81, 0x01, 0x04, 0x07, 0x35, 0xFF };  //Zoom Out: 81 01 04 07 3x FF , where x is speed- 0(low)-7(hi);
+    uint8_t zoom_stop[6] = 	{ 0x81, 0x01, 0x04, 0x07, 0x00, 0xFF };  //Stop all zooming
+    
+
+
+    uint8_t power_reset[6] = 	{ 0x81, 0x01, 0x04, 0x00, 0x03, 0xFF };
+    uint8_t zoom_in[6] = 		{ 0x81, 0x01, 0x04, 0x07, 0x02, 0xFF };
+    uint8_t zoom_out[6] = 		{ 0x81, 0x01, 0x04, 0x07, 0x03, 0xFF };
+
+
+    // FOCUS
+    uint8_t focus_far[6] = 	{ 0x81, 0x01, 0x04, 0x08, 0x02, 0xFF };
+    uint8_t focus_near[6] = 	{ 0x81, 0x01, 0x04, 0x08, 0x03, 0xFF };
+    uint8_t focus_farVar[6] = 	{ 0x81, 0x01, 0x04, 0x08, 0x25, 0xFF };    // 8x 01 04 08 2p FF
+    uint8_t focus_nearVar[6] = { 0x81, 0x01, 0x04, 0x08, 0x35, 0xFF };   // 8x 01 04 08 3p FF
+    uint8_t focus_stop[6] = 	{ 0x81, 0x01, 0x04, 0x08, 0x00, 0xFF };
+
+    uint8_t focus_auto[6] = 	{ 0x81, 0x01, 0x04, 0x38, 0x02, 0xFF };
+    uint8_t focus_manual[6] = 	{ 0x81, 0x01, 0x04, 0x38, 0x03, 0xFF };
+    uint8_t focus_OnePushTrigger[6] = { 0x81, 0x01, 0x04, 0x18, 0x01, 0xFF };
+
+    // QUERY - Zoom & Focus
+    uint8_t zoom_PosInq[5] = 	{ 0x81, 0x09, 0x04, 0x47, 0xFF };
+    uint8_t focus_PosInq[5] = 	{ 0x81, 0x09, 0x04, 0x48, 0xFF };
+
+    // QUERY - Power
+    uint8_t power_Inq[5] = 	{ 0x81, 0x09, 0x04, 0x00, 0xFF };
+
+    //Response Power ON
+    uint8_t res_Power_ON[4] = 	{ 0x90, 0x50, 0x20, 0xFF};
+
+    //Day/Night switch command
+    uint8_t cam_IRC_Night[6] = { 0x81, 0x01, 0x04, 0x01, 0x02, 0xFF };
+    uint8_t cam_IRC_Day[6]   = { 0x81, 0x01, 0x04, 0x01, 0x03, 0xFF };
+
+
+    //byte zoom_out[6] = { 0x81, 0x01, 0x04 ,0x47 ,0x0p ,0x0q ,0x0r ,0x0s ,0xFF };  //  pqrs : Zoom Position
+
+    uint8_t test_visca[6] = { 0x81, 0x01, 0x09, 0x00, 0x02, 0xFF };  // test_visca
+
+//    const int BTN_ZOOM_IN_PIN = 46;    // Zoom in  =  ZOOM_TELE
+//    const int BTN_ZOOM_OUT_PIN = 47;   // Zoom out = ZOOM_WIDE
+//    const int BTN_FOCUS_FAR_PIN = 48;   // Focus in  =  ZOOM_TELE
+//    const int BTN_FOCUS_NEAR_PIN = 49;  // Focus out = ZOOM_WIDE
+
+
+ //   const int BTN_ZOOM_IRQ_PIN = 50;   // Zoom irq
+ //   const int BTN_FOCUS_IRQ_PIN = 51;   // Focus irq
+
+    //const int button1 = 26;  // Zoom in  =  ZOOM_TELE
+    //const int button2 = 27;  //Zoom out = ZOOM_WIDE
+    //const int ledPin = 13;      // the number of the LED pin
+
+
+    float hexVal = 255.0;
+    float outputLevels = 1024.0;
+    float minValueFocus = 4096;   // [= 0x1000];
+    float maxValueFocus = 52503;  // CD17    49367;   // [= 0xC0D7];     CA2E
+    float focusLevels = maxValueFocus - minValueFocus + 1;
+
+    uint32_t cmdTime = HAL_GetTick();
+
+    uint16_t zoomPos = 0xFFFF;
+    uint16_t focusPos = 1023;  // focusPos = 1023;      0xFFFF;
+    enum eItemPos {ZOOM, FOCUS, NONE };
+    eItemPos itemPos = NONE;
+    bool focusOnePushTriggerMode = false;
+
+public:
+    DayCam();
+    virtual ~DayCam();
+
+//    MySerial* viscaSerial;
+	//Serial* viscaSerial = new Serial();
+    Serial* viscaSerial ;//= &serial_1;
+
+
+    void setup();
+    void loop();
+
+
+
+    void setAddress();
+
+    void setZoomPosition(uint8_t zoomHighByte, uint8_t zoomLowByte);
+    void zoomIn();
+    void zoomOut();
+    void focusNear();
+    void focusFar();
+
+
+    void checkPositions(char* msg, size_t size);
+    void zoomPosInq();
+    void focusPosInq();
+
+    void sendVISCACommand(uint8_t command1, uint8_t command2, uint8_t command3);
+
+
+    void moveCameraUp();
+
+    void sendVISCACommand(uint8_t address, uint8_t command1, uint8_t command2, uint8_t data1, uint8_t data2);
+    void sendVISCACommand(uint8_t cmd[], int length);
+    void sendCommandCancel();
+    void gColorFix();
+
+    int pqrsHexBytesPosToIntPos(char* msg);
+    void transferPositionSPI(uint16_t data);
+
+    void ZoomLoop();
+    void FocusLoop();
+
+    uint16_t posZoom = 0;
+    uint16_t posFocus = 0;
+    EViscaRX_Status eViscaRX_Status = EViscaRX_Status::eIdle;
+    uint32_t myTime=HAL_GetTick();
+
+};
+
+#endif /* VISCAMANAGER_H_ */

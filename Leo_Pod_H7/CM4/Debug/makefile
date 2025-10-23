@@ -12,6 +12,7 @@ RM := rm -rf
 -include Utilities/subdir.mk
 -include Drivers/STM32H7xx_HAL_Driver/subdir.mk
 -include Core/Startup/subdir.mk
+-include Core/Src/utils/subdir.mk
 -include Core/Src/subdir.mk
 -include Common/Src/subdir.mk
 -include objects.mk
@@ -77,8 +78,8 @@ all: main-build
 main-build: Leo_Pod_H7_CM4.elf secondary-outputs
 
 # Tool invocations
-Leo_Pod_H7_CM4.elf Leo_Pod_H7_CM4.map: $(OBJS) $(USER_OBJS) C:\Users\krinm\STM32CubeIDE\Leo_Pod\Leo_Pod_H7\CM4\STM32H755ZITX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-g++ -o "Leo_Pod_H7_CM4.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\krinm\STM32CubeIDE\Leo_Pod\Leo_Pod_H7\CM4\STM32H755ZITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Leo_Pod_H7_CM4.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -lstdc++ -lsupc++ -Wl,--end-group
+Leo_Pod_H7_CM4.elf Leo_Pod_H7_CM4.map: $(OBJS) $(USER_OBJS) C:\SPB_Data\git\Leo-Pod\Leo_Pod_H7\CM4\STM32H755ZITX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-g++ -o "Leo_Pod_H7_CM4.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\SPB_Data\git\Leo-Pod\Leo_Pod_H7\CM4\STM32H755ZITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Leo_Pod_H7_CM4.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -lstdc++ -lsupc++ -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

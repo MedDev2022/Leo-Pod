@@ -1,0 +1,429 @@
+
+#include "ViscaManager.h"
+//#include "typedef.h"
+#include "stdio.h"
+#include <stdlib.h>
+#include <string.h>
+#include <iostream>
+#include "main.h"
+
+
+
+extern UART_HandleTypeDef huart1;
+
+DayCam::DayCam() {
+    //viscaSerial = &cCamUart;
+	//viscaSerial = &huart1;
+	//viscaSerial.init(USART1, 115200, false);
+
+}
+
+DayCam::~DayCam() {
+}
+
+void DayCam::setup() {
+
+    // Set VISCA protocol configuration (optional)
+    sendVISCACommand(0x30, 0x01, 0x00); // Set command to VISCA protocol version 1.0
+
+    //Send Address command
+    setAddress();
+
+    //delay(delayTime);
+    HAL_Delay(500);  //delay to allow camera time for next command
+
+
+    //wait for DayCam ready
+    uint8_t tempBuff[4];
+    int i=0;
+    int timeOUT = HAL_GetTick();
+    do{
+		timeOUT = HAL_GetTick();
+		sendVISCACommand(power_Inq, sizeof(power_Inq));
+		if (viscaSerial->available()){
+			viscaSerial->readBytes(tempBuff, 4);
+		}
+			for (; i<3; i++){
+				if (tempBuff[i] != res_Power_ON[i])
+					i=5;
+			}
+			HAL_Delay(500);
+    }while((HAL_GetTick() - timeOUT) < 200 && i==4);
+
+    serial.println("DayCAM ready");
+
+//    delay(2000);
+   
+    // Set auto focus
+  //  sendVISCACommand(focus_auto, sizeof(focus_auto));
+     // Set manual focus
+    sendVISCACommand(focus_manual, sizeof(focus_manual));
+
+    zoomPosInq();
+    HAL_Delay(500);
+    focusPosInq();
+}
+
+
+uint8_t rxBytes[10];
+//unsigned long myTime = millis();
+void DayCam::loop() {
+
+	unsigned long myTime = HAL_GetTick();
+
+
+		// read from port 1, send to port 0:
+		if (viscaSerial->available()) {
+		   //Serial.println("RX:");
+			int len = viscaSerial->available();
+			uint8_t byte;
+			int rxLength = 0;
+			int inByte;
+			long timeout = HAL_GetTick();
+			do {
+				inByte = viscaSerial->readBytes(&byte, sizeof(uint8_t));
+				rxBytes[rxLength++] = byte;
+			} while (byte != 0xFF && viscaSerial->available());//( millis() - timeout) > 250 && viscaSerial->available() ); //MK bad condition to exit, consider to add timeout
+
+			if (byte == 0xFF){
+			Utils::DebugMsg("RX Answer: ", false);
+			Utils::DebugHexMsg((char*)&rxBytes, sizeof(uint8_t) * rxLength);
+			checkPositions((char*)&rxBytes, sizeof(uint8_t) * rxLength);
+			}
+			else
+			{
+				Utils::DebugMsg("RX Answer: timeout ERROR", true);
+				//viscaSerial->rxRestart(MAX_MESSAGE_SIZE);
+				viscaSerial->rxRestart(MAX_MESSAGE_SIZE);
+
+			}
+		}
+
+		ZoomLoop();
+
+		FocusLoop();
+
+}
+
+#define PIN_HIGH true
+#define PIN_LOW false
+#define HIGH true
+#define LOW false
+
+bool isZooming = false;
+void DayCam::ZoomLoop(){
+
+    //ZOOM TELE
+    //int button1State = digitalRead(BTN_ZOOM_IN_PIN);
+	int button1State = HAL_GPIO_ReadPin(BTN_ZOOM_IN_GPIO_Port, BTN_ZOOM_IN_Pin);
+    if (!isZooming && button1State == HIGH) {
+        serial.print("Button LOW => ZOOM_IN ");
+        serial.println("");
+        //Send zoom tele command
+        uint8_t sByte;
+        for (int i = 0; i < 6; i++) {
+            sByte = zoom_teleVar[i];
+            viscaSerial->write((char*)&zoom_teleVar[i],1);
+            Utils::DebugHexMsg((char*)&sByte, sizeof(uint8_t), false);
+            // Serial.write(zoom_teleVar[i]);   //for debugging
+            serial.print(" ");
+        }
+        serial.println("");
+        isZooming = true;
+    }
+
+    //ZOOM WIDE
+    //int button2State = digitalRead(BTN_ZOOM_OUT_PIN);
+	int button2State = HAL_GPIO_ReadPin(BTN_ZOOM_OUT_GPIO_Port, BTN_ZOOM_OUT_Pin);
+    if (!isZooming && button2State == HIGH) {
+        serial.print("Button LOW => ZOOM_OUT ");
+        serial.println("");
+        //digitalWrite(ledPin, HIGH);
+        uint8_t sByte;
+        for (int i = 0; i < 6; i++) {
+            sByte = zoom_teleVar[i];
+            viscaSerial->write((char*)&zoom_wideVar[i],1);
+            // Serial.write(zoom_teleVar[i]);  //for debugging
+            Utils::DebugHexMsg((char*)&sByte, sizeof(uint8_t), false);
+            serial.print(" ");
+        }
+        serial.println("");
+        isZooming = true;
+    }
+
+    if (isZooming && button2State == LOW && button1State == LOW) {
+        //delay(delayTime);
+        serial.println("");
+        uint8_t sByte;
+        for (int i = 0; i < 6; i++) {
+            sByte = zoom_stop[i];
+            viscaSerial->write((char*)&zoom_stop[i],1);
+            //Serial.write(zoom_stop[i]);  //for debugging
+            Utils::DebugHexMsg((char*)&sByte, sizeof(uint8_t), false);
+            serial.print("");
+        }
+        isZooming = false;
+        serial.println("");
+        // Set auto focus
+     //   serial.println("************>>>>  Auto Focus mode ");
+       // sendVISCACommand(focus_auto, sizeof(focus_auto));
+        focusOnePushTriggerMode = false;
+        myTime = HAL_GetTick() - 251;
+        itemPos = eItemPos::ZOOM;
+        zoomPosInq();
+    }
+}
+
+bool isFocusing = false;
+void DayCam::FocusLoop() {
+
+    // FOCUS_FAR
+    //int button1State = digitalRead(BTN_FOCUS_FAR_PIN);
+	int button1State = HAL_GPIO_ReadPin(BTN_FOCUS_FAR_GPIO_Port, BTN_FOCUS_FAR_Pin);
+	
+	
+    if (!isFocusing && button1State == PIN_HIGH) {
+        serial.print("Button LOW => FOCUS_FAR ");
+        serial.println("");
+
+        uint8_t sByte;
+        for (int i = 0; i < 6; i++) {
+            sByte = focus_farVar[i];
+            viscaSerial->write((char*)&focus_farVar[i],1);
+            Utils::DebugHexMsg((char*)&sByte, sizeof(uint8_t), false);
+            serial.print(" ");
+        }
+        serial.println("");
+        isFocusing = true;
+    }
+    // FOCUS_NEAR
+    //int button2State = digitalRead(BTN_FOCUS_NEAR_PIN);
+	int button2State = HAL_GPIO_ReadPin(BTN_FOCUS_NEAR_GPIO_Port, BTN_FOCUS_NEAR_Pin);
+	
+    if (!isFocusing && button2State == PIN_HIGH) {
+        serial.print("Button LOW => FOCUS_NEAR ");
+        serial.println("");
+        uint8_t sByte;
+        for (int i = 0; i < 6; i++) {
+            sByte = focus_nearVar[i];
+            viscaSerial->write((char*)&focus_nearVar[i],1);
+            Utils::DebugHexMsg((char*)&sByte, sizeof(uint8_t), false);
+            serial.print(" ");
+        }
+        serial.println("");
+        isFocusing = true;
+    }
+
+    if (isFocusing && button2State == PIN_LOW && button1State == PIN_LOW) {
+        serial.println("");
+        uint8_t sByte;
+        for (int i = 0; i < 6; i++) {
+            sByte = focus_stop[i];
+            viscaSerial->write((char*)&focus_stop[i],1);
+            Utils::DebugHexMsg((char*)&sByte, sizeof(uint8_t), false);
+            serial.print(" ");
+
+        }
+        isFocusing = false;
+        serial.println("");
+        myTime = HAL_GetTick() - 251;
+        itemPos = eItemPos::FOCUS;
+        focusPosInq();
+
+    }
+}
+
+void DayCam::setAddress() {
+    for (int i = 0; i < 4; i++) {
+    	viscaSerial->write((char*)&address_command[i],1);
+    }
+}
+
+// Function to send VISCA command to set zoom position
+void DayCam::setZoomPosition(uint8_t zoomHighByte, uint8_t zoomLowByte) {
+    uint8_t command[] = { 0x81, 0x01, 0x04, 0x47, 0x7E, zoomHighByte, zoomLowByte }; // VISCA command to set zoom position
+
+    // Calculate checksum
+    uint8_t checksum = 0;
+    for (int i = 0; i < 6; i++) {
+        checksum -= command[i];
+    }
+    command[6] = checksum;
+}
+
+
+void DayCam::zoomIn() {
+    sendVISCACommand(VISCA_ZOOM_IN, 0x03, 0x00); // Zoom In at default speed
+}
+
+void DayCam::zoomOut() {
+    sendVISCACommand(VISCA_ZOOM_OUT, 0x03, 0x00); // Zoom Out at default speed
+}
+
+void DayCam::focusNear() {
+    sendVISCACommand(VISCA_FOCUS_NEAR, 0x03, 0x00); // Focus Near at default speed
+}
+
+void DayCam::focusFar() {
+    sendVISCACommand(VISCA_FOCUS_FAR, 0x03, 0x00); // Focus Far at default speed
+}
+
+void DayCam::checkPositions(char* msg, size_t size) {
+
+    serial.println("=> checkPositions");
+    int pos;
+    if (msg[0] == 0x90 && msg[1] == 0x50) {
+
+        serial.println("=> Position");
+        switch (itemPos)
+        {
+        case eItemPos::ZOOM:
+            pos = pqrsHexBytesPosToIntPos(msg);
+            zoomPos = pos / 16;
+            if (zoomPos == 1024)
+                zoomPos = 1023;
+            serial.print("===> Zoom Pos = ");
+            serial.println(std::to_string(zoomPos).c_str());
+            break;
+        case eItemPos::FOCUS:
+            pos = pqrsHexBytesPosToIntPos(msg);
+            focusPos = pos;
+            /*focusPos = outputLevels * (pos - minValueFocus) / focusLevels;
+            if (focusPos == 1024)
+                focusPos = 1023;*/
+            serial.print("===> focusPos = ");
+            serial.print(pos);
+            serial.print("   **************************");
+
+            break;
+        default:
+            break;
+        }
+        itemPos = eItemPos::NONE;
+        if (zoomPos != 0xFFFF && focusPos != 0xFFFF) {
+            serial.print("============> Zoom Pos = ");
+            serial.print(zoomPos);
+            serial.print("============> Focus Pos = ");
+            serial.println(std::to_string(focusPos).c_str());
+            //ViscaManager::transferPositionSPI(zoomPos);
+        }
+    }
+}
+
+void DayCam::zoomPosInq() {
+
+        serial.println("=> ZOOM_IRQ");
+        sendVISCACommand(zoom_PosInq, sizeof(zoom_PosInq));
+
+}
+
+void DayCam::focusPosInq() {
+
+        serial.println("=> FOCUS_IRQ ");
+        sendVISCACommand(focus_PosInq, sizeof(focus_PosInq));
+}
+
+
+void DayCam::sendVISCACommand(uint8_t command1, uint8_t command2, uint8_t command3) {
+    // Send VISCA command
+
+	uint8_t command[] = { 0x81, VISCA_ADDRESS, command1, command2, command3 };
+    viscaSerial->write((char*)command, sizeof(command));
+    Utils::DebugHexMsg((char*)command, sizeof(command));
+}
+
+void DayCam::moveCameraUp() {
+	uint8_t command[] = { 0x81, 0x01, 0x06, 0x01, 0x03, 0x03, 0x03, 0x03, 0xFF };
+    sendVISCACommand(command, sizeof(command));
+}
+
+void DayCam::sendVISCACommand(uint8_t address, uint8_t command1, uint8_t command2, uint8_t data1, uint8_t data2)
+{
+	uint8_t checksum = address ^ command1 ^ command2 ^ data1 ^ data2;
+
+    viscaSerial->write(0x81); // Header
+    viscaSerial->write(address); // Address
+    viscaSerial->write(command1); // Command 1
+    viscaSerial->write(command2); // Command 2
+    viscaSerial->write(data1); // Data 1
+    viscaSerial->write(data2); // Data 2
+    viscaSerial->write(checksum); // Checksum
+
+}
+
+// Function to send a VISCA command to the camera
+void DayCam::sendVISCACommand(uint8_t cmd[], int length) {
+
+    for (int i = 0; i < length; i++) {
+        viscaSerial->write(cmd[i]); // Send each byte of the command
+    }
+
+}
+
+void DayCam::sendCommandCancel() {
+
+	for (int i = 0; i < 3; i++) {
+        viscaSerial->write(commandCancel[i]);
+	}
+
+}
+
+void DayCam::gColorFix()
+{
+
+	sendVISCACommand(cam_IRC_Night, sizeof(cam_IRC_Night));
+    HAL_Delay(250);
+    sendVISCACommand(cam_IRC_Day, sizeof(cam_IRC_Day));
+    //delay(250);
+}
+
+// Total = 0x4000 = 16384  
+// 16384 : 16 = 1024
+int DayCam::pqrsHexBytesPosToIntPos(char* msg) {
+    //cout << "bytesToHex" << endl;
+    // byte CAM_ZoomPosInqRes[7] = { 0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF };
+    //byte CAM_ZoomPosInqRes[7] = { 0x90, 0x50, 0x04, 0x00, 0x00, 0x00, 0xFF };
+    long total = 0;
+    //cout << "total=" << total << endl;
+    int i = 2;
+    total = msg[i++] & 0x0F;
+    for (; i < 6; i++) {
+        //cout << "total=" << total << endl;
+        total = (total << 4) | msg[i] & 0x0F;
+    }
+    serial.print("=> total = ");
+    serial.println(std::to_string(total).c_str());
+    // cout << "total=" << total << endl;
+    return total;
+}
+
+
+/*
+===========================================================
+ZoomPosInfo:      max zoom out
+81-09-04-47-FF
+Camera Answer:
+90-50-00-00-00-00-FF       // y0 50 0p 0q 0r 0s FF
+pqrs : Zoom Position
+pqrs = 0000
+----------------------------------------------------------
+ZoomPosInfo:       max zoom in
+81-09-04-47-FF
+Camera Answer:
+90-50-04-00-00-00-FF       // y0 50 0p 0q 0r 0s FF
+pqrs = 4000
+===========================================================
+FocusPosInfo:             Focus Near
+81-09-04-48-FF
+Camera Answer:
+90-50-0C-00-0D-07-FF     // y0 50 0p 0q 0r 0s FF
+pqrs : Focus Position
+pqrs = C0D7
+----------------------------------------------------------
+FocusPosInfo:             Focus Far
+81-09-04-48-FF
+Camera Answer:
+90-50-01-00-00-00-FF     // y0 50 0p 0q 0r 0s FF
+pqrs : Focus Position
+pqrs = 1000
+*/
