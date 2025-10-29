@@ -61,11 +61,11 @@
 
  		if(HAL_UART_Receive(huart, (uint8_t*)rxBuffer, 132,50)!=HAL_TIMEOUT){
  			__NOP();
- 			client.println("Sync received");
+ 			host.println("Sync received");
  		}
  		else
  		{
- 			client.println("Timeout");
+ 			host.println("Timeout");
  		}
 
  		return;
@@ -87,7 +87,7 @@
 
  				HAL_UART_Receive(huart, buff1, 130,10000)!=HAL_TIMEOUT;
  				//this->send(rxBuffer, length);
- 				client.println("Sync received");
+ 				host.println("Sync received");
  				}
  				}
  			}

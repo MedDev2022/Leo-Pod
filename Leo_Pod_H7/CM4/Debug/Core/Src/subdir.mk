@@ -1,17 +1,9 @@
 ################################################################################
 # Automatically-generated file. Do not edit!
-# Toolchain: GNU Tools for STM32 (11.3.rel1)
+# Toolchain: GNU Tools for STM32 (13.3.rel1)
 ################################################################################
 
 # Add inputs and outputs from these tool invocations to the build variables 
-C_SRCS += \
-../Core/Src/main.c \
-../Core/Src/resmgr_utility.c \
-../Core/Src/stm32h7xx_hal_msp.c \
-../Core/Src/stm32h7xx_it.c \
-../Core/Src/syscalls.c \
-../Core/Src/sysmem.c 
-
 CPP_SRCS += \
 ../Core/Src/Client.cpp \
 ../Core/Src/Fpga.cpp \
@@ -22,6 +14,14 @@ CPP_SRCS += \
 ../Core/Src/comm.cpp \
 ../Core/Src/main.cpp \
 ../Core/Src/uart.cpp 
+
+C_SRCS += \
+../Core/Src/main.c \
+../Core/Src/resmgr_utility.c \
+../Core/Src/stm32h7xx_hal_msp.c \
+../Core/Src/stm32h7xx_it.c \
+../Core/Src/syscalls.c \
+../Core/Src/sysmem.c 
 
 C_DEPS += \
 ./Core/Src/main.d \

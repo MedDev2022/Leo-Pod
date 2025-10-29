@@ -1,15 +1,19 @@
 // stm32_uart_freertos.cpp
 
+#include <Host.hpp>
 #include <KX134_SPI.hpp>
 #include "main.h"
-#include "cmsis_os.h"
+//#include "cmsis_os.h"
 
-#include "Client.hpp"
 #include "iRay.hpp"
 #include "DayCam.hpp"
 #include "LRX20A.hpp"
 #include "RPLens.hpp"
+#include "CLI.hpp"
 #include "TempSens.hpp"
+#include "TempSensorManager.hpp"
+
+
 extern "C" {
 #include "FreeRTOS.h"
 #include "queue.h"
@@ -21,9 +25,6 @@ extern "C" {
 
 // tec_task.cpp
 #include "tec.hpp"
-
-
-
 #include "UartEndpoint.hpp"
 
 extern "C" void cpp_app_main(void);
@@ -57,6 +58,7 @@ extern "C" int _write(int file, char *ptr, int len);
 extern UART_HandleTypeDef huart3;  // make sure it's defined elsewhere (e.g., main.c/.cpp)
 extern UART_HandleTypeDef huart1;  // make sure it's defined elsewhere (e.g., main.c/.cpp)
 extern UART_HandleTypeDef huart8;  // make sure it's defined elsewhere (e.g., main.c/.cpp)
+extern UART_HandleTypeDef huart4;  // make sure it's defined elsewhere (e.g., main.c/.cpp)
 
 
 
@@ -89,144 +91,208 @@ extern "C" void cpp_app_main(void)
 
 
 void i2c_scan(I2C_HandleTypeDef* hi2c) {
+    printf("\r\nI2C Bus Scan:\r\n");
+    uint8_t found = 0;
     for (uint8_t a = 0x03; a < 0x78; ++a) {
         if (HAL_I2C_IsDeviceReady(hi2c, uint16_t(a << 1), 1, 10) == HAL_OK) {
-            printf("I2C found: 0x%02X\r\n", a);
+            printf("  Found device at 0x%02X\r\n", a);
+            found++;
         }
     }
+    if (found == 0) {
+        printf("  No devices found\r\n");
+    }
+    printf("\r\n");
 }
+
+
+// Global pointers to device instances (optional, for easy access)
+static Host* g_host = nullptr;
+static LRX20A* g_lrx20A = nullptr;
+static DayCam* g_dayCam = nullptr;
+static RPLens* g_rpLens = nullptr;
+static IRay* g_iRay = nullptr;
+static CLI* g_cli = nullptr;
+
+// Global temperature sensor manager
+static TempSensorManager* g_tempSensors = nullptr;
 
 extern  void MyTaskFunction(void *argument)
 {
 
+    printf("cpp_app_main started\r\n");
+    printf("Free heap before init: %u bytes\r\n", xPortGetFreeHeapSize());
+
+    // ================================================================================
+    // UART DEVICE INITIALIZATION
+    // ================================================================================
+    g_host = new Host(&huart1);
+    g_lrx20A = new LRX20A(&huart2);
+    g_dayCam = new DayCam(&huart3);
+    g_rpLens = new RPLens(&huart7);
+    g_iRay = new IRay(&huart8);
+    g_cli = new CLI(&huart4);
+
+    printf("All UART devices created\r\n");
+
+    // Initialize each device (this starts UART reception)
+    g_host->Init();
+    g_lrx20A->Init();
+    g_dayCam->Init();
+    g_rpLens->Init();
+    g_iRay->Init();
+    g_cli->Init();
+
+    printf("All UART devices initialized\r\n");
+
+    // Set up device relationships
+    g_host->setDayCam(g_dayCam);
+    g_host->setLRF(g_lrx20A);
+    g_host->setRPLens(g_rpLens);
+    g_host->setIRay(g_iRay);
+    g_host->setCli(g_cli);
+
+    printf("Device relationships configured\r\n");
+
+    // ================================================================================
+    // TEMPERATURE SENSOR INITIALIZATION (ALL 4 CHANNELS)
+    // ================================================================================
+    printf("\r\n=== Initializing Temperature Sensors ===\r\n");
+
+    // Scan I2C bus first (optional, for debugging)
+    i2c_scan(&hi2c2);
+
+    // Create temperature sensor manager
+    TempSensorManager::Config tempCfg = {
+        .hi2c = &hi2c2,
+        .muxAddr7bit = 0x70,        // PCA9546A multiplexer address
+        .sensorAddr7bit = 0x44,     // STS4L sensor address (same on all channels)
+        .i2cTimeoutMs = 20,
+        .autoDetect = true           // Automatically detect connected sensors
+    };
+
+    g_tempSensors = new TempSensorManager(tempCfg);
 
 
-	Client client(&huart1);
-	LRX20A* lrx20A = new LRX20A(&huart2);
-	DayCam* dayCam = new DayCam(&huart3);
-	RPLens* rpLens = new RPLens(&huart7);
-	IRay* iRay = new IRay(&huart8);
+    if (g_tempSensors != nullptr) {
+        // Initialize all channels - this will detect which sensors are connected
+        uint8_t sensorsFound = g_tempSensors->init();
+        printf("Temperature sensors initialized: %u found\r\n", sensorsFound);
 
+        // Read all sensors once to populate initial values
+        osDelay(50);
+        uint8_t readSuccess = g_tempSensors->readAll();
+        printf("Initial temperature read: %u/%u successful\r\n", readSuccess, sensorsFound);
 
-	client.Init();
+        // Print detailed status
+        g_tempSensors->printStatus();
 
-	client.setLRF(lrx20A);
-	lrx20A->Init();
+        // Copy temperatures to Host for UART transmission
+        g_tempSensors->getAllTemperaturesScaled(g_host->Temp);
 
-   	client.setRPLens(rpLens);
-    rpLens->Init();
-
-   	client.setIRay(iRay);
-    iRay->Init();
-
-    client.setDayCam(dayCam);
-    dayCam->Init();
-
-
-    printf("Before Cam Inint!\r\n");
-
-
-    printf("After Cam Inint!\r\n");
-
- //   client.setLRF(lrx20A);
-
-
-//	KX134 kx134;
- //   kx134.init();
-
-  //  lrx20A->InitLRX20A();
-
-  //  dayCam->address_command;
-
-
-        STS4L::Config cfg{
-            .hi2c        = &hi2c2,
-            .muxAddr7bit = 0x70,   // PCA9546A default
-            .muxChannel  = 0,      // you said channel 0
-            .devAddr7bit = 0x44,   // <<< set your sensor’s 7-bit I2C address here
-            .i2cTimeoutMs = 20
-        };
-       static STS4L sensor(cfg);
-
-       i2c_scan(&hi2c2);
-
-        // Optional: reset once on boot
-        sensor.softReset();
-
-        float tC = 0.f;
-        if (sensor.readTemperature(tC) == HAL_OK) {
-            printf("STS4L: %.2f C\r\n", tC);
-        } else {
-            printf("STS4L read failed\r\n");
+        printf("Temperatures copied to Host:\r\n");
+        for (uint8_t i = 0; i < 4; i++) {
+            if (g_tempSensors->isConnected(i)) {
+                printf("  Temp[%u] = %.2f°C (0x%04X)\r\n",
+                       i,
+                       g_tempSensors->getTemperature(i),
+                       g_host->Temp[i]);
+            } else {
+                printf("  Temp[%u] = Not connected\r\n", i);
+            }
         }
+    } else {
+        printf("ERROR: Failed to create temperature sensor manager\r\n");
+    }
 
 
-        KX134_SPI acc({ .hspi = &hspi2, .timeout_ms = 10 });
+    // ================================================================================
+    // ACCELEROMETER INITIALIZATION
+    // ================================================================================
+    printf("\r\n=== Initializing Accelerometer ===\r\n");
 
-        uint8_t id=0;
-        acc.whoAmI(id);                    // expect ~0x46
-        acc.init(KX134_SPI::RANGE_8G, 0x03);
-        acc.setSensitivityLSBperG(2048.0f);// tune to your datasheet
-        int16_t x,y,z;
+    KX134_SPI acc({ .hspi = &hspi2, .timeout_ms = 10 });
 
+    uint8_t id = 0;
+    if (acc.whoAmI(id) == HAL_OK) {
+        printf("KX134 WHO_AM_I: 0x%02X\r\n", id);
 
-        printf("KX134 WHO=0x%02X C\r\n",
-               id);
+        if (acc.init(KX134_SPI::RANGE_8G, 0x03) == HAL_OK) {
+            acc.setSensitivityLSBperG(2048.0f);
+            printf("KX134 initialized successfully\r\n");
 
+            int16_t x, y, z;
+            if (acc.readRaw(x, y, z) == HAL_OK) {
+                g_host->Imu[0] = x;
+                g_host->Imu[1] = y;
+                g_host->Imu[2] = z;
 
+                float gx, gy, gz;
+                acc.countsToG(x, y, z, gx, gy, gz);
+                printf("Initial reading: %.3f, %.3f, %.3f g\r\n", gx, gy, gz);
+            }
+        } else {
+            printf("KX134 initialization failed\r\n");
+        }
+    } else {
+        printf("KX134 communication failed\r\n");
+    }
 
- //       extern ctrlReg_t tmpReg;
+    printf("\r\n=== System Initialization Complete ===\r\n");
+    printf("Free heap after init: %u bytes\r\n", xPortGetFreeHeapSize());
+
+    // ================================================================================
+    // MAIN LOOP
+    // ================================================================================
+    uint32_t loopCount = 0;
+
 
     for (;;)
     {
-        printf("Hello from MyTaskFunction!\r\n");
-        HAL_GPIO_TogglePin(MCU_LED_2_GPIO_Port, MCU_LED_2_Pin);  // Optional
-        osDelay(1000);  // delay 1 second
+        HAL_GPIO_TogglePin(MCU_LED_2_GPIO_Port, MCU_LED_2_Pin);
 
+        // Read all temperature sensors every loop
+        if (g_tempSensors != nullptr) {
+            uint8_t readCount = g_tempSensors->readAll();
 
-        HAL_StatusTypeDef st = sensor.readTemperature(tC);
+            // Update Host temperature array for UART transmission
+            g_tempSensors->getAllTemperaturesScaled(g_host->Temp);
 
-        //if (sensor.readTemperature(tC) == HAL_OK) {
-        if (st == HAL_OK) {
-            printf("Temperature: %.2f C\r\n", tC);
-        } else {
-            printf("Temperature read failed with error: %d\r\n", (uint16_t)st);
+            // Print every 10 loops
+            if ((loopCount % 10) == 0) {
+                printf("\r\n--- Temperature Reading (Loop %lu) ---\r\n", loopCount);
+                for (uint8_t i = 0; i < 4; i++) {
+                    if (g_tempSensors->isConnected(i)) {
+                        printf("Ch%u: %.2f°C (0x%04X) %s\r\n",
+                               i,
+                               g_tempSensors->getTemperature(i),
+                               g_host->Temp[i],
+                               g_tempSensors->getStatus(i).lastReadOK ? "v" : "x");
+                    }
+                }
+                printf("Read: %u/%u successful\r\n",
+                       readCount,
+                       g_tempSensors->getConnectedCount());
+            }
+        }
+
+        //  Read accelerometer periodically
+        if ((loopCount % 5) == 0) {
+            int16_t x, y, z;
+            if (acc.readRaw(x, y, z) == HAL_OK) {
+                g_host->Imu[0] = x;
+                g_host->Imu[1] = y;
+                g_host->Imu[2] = z;
+
+                float gx, gy, gz;
+                acc.countsToG(x, y, z, gx, gy, gz);
+                printf("IMU: %.3f, %.3f, %.3f g\r\n", gx, gy, gz);
+            }
         }
 
 
-        if (acc.readRaw(x,y,z)==HAL_OK) {
-            float gx,gy,gz; acc.countsToG(x,y,z,gx,gy,gz);
-            printf("KX134 g: %.3f %.3f %.3f\r\n", gx,gy,gz);
-        }
-        else printf("KX134 read failed\r\n");
-
-
-
-
-    	if (client.tmpReg.bits.COOLING_ON) 			HAL_GPIO_TogglePin(	COOLING_ON_GPIO_Port, 		COOLING_ON_Pin);
-    	if (client.tmpReg.bits.DAYCAM_COOL_HEAT) 	HAL_GPIO_TogglePin(	DAYCAM_COOL_HEAT_GPIO_Port ,DAYCAM_COOL_HEAT_Pin);
-    	if (client.tmpReg.bits.HEATER_ON_IRCAM) 	HAL_GPIO_TogglePin(	HEATER_ON_IRCAM_GPIO_Port, 	HEATER_ON_IRCAM_Pin);
-    	if (client.tmpReg.bits.HEATER_SDI_CONV) 	HAL_GPIO_TogglePin(	HEATER_SDI_CONV_GPIO_Port, 	HEATER_SDI_CONV_Pin);
-    	if (client.tmpReg.bits.HEATER_MISC) 		HAL_GPIO_TogglePin(	HEATER_MISC_GPIO_Port, 		HEATER_MISC_Pin);
-    	if (client.tmpReg.bits.DAYCAM_TEC_ON) 		HAL_GPIO_TogglePin(	DAYCAM_TEC_ON_GPIO_Port, 	DAYCAM_TEC_ON_Pin);
-    	if (client.tmpReg.bits.IR_TEC_ON) 			HAL_GPIO_TogglePin(	IR_TEC_ON_GPIO_Port, 		IR_TEC_ON_Pin);
-    	if (client.tmpReg.bits.IR_COOL_HEAT) 		HAL_GPIO_TogglePin(	IR_COOL_HEAT_GPIO_Port, 	IR_COOL_HEAT_Pin);
-    	if (client.tmpReg.bits.RP_TEC_ON) 			HAL_GPIO_TogglePin(	RP_TEC_ON_GPIO_Port, 		RP_TEC_ON_Pin);
-    	if (client.tmpReg.bits.RP_COOL_HEAT) 		HAL_GPIO_TogglePin(	RP_COOL_HEAT_GPIO_Port, 	RP_COOL_HEAT_Pin);
-
-    	if (!client.tmpReg.bits.COOLING_ON) 		HAL_GPIO_WritePin(	COOLING_ON_GPIO_Port, 		COOLING_ON_Pin, 		GPIO_PIN_RESET);
-    	if (!client.tmpReg.bits.DAYCAM_COOL_HEAT) 	HAL_GPIO_WritePin(	DAYCAM_COOL_HEAT_GPIO_Port ,DAYCAM_COOL_HEAT_Pin, 	GPIO_PIN_RESET);
-    	if (!client.tmpReg.bits.HEATER_ON_IRCAM) 	HAL_GPIO_WritePin(	HEATER_ON_IRCAM_GPIO_Port, 	HEATER_ON_IRCAM_Pin, 	GPIO_PIN_RESET);
-    	if (!client.tmpReg.bits.HEATER_SDI_CONV) 	HAL_GPIO_WritePin(	HEATER_SDI_CONV_GPIO_Port, 	HEATER_SDI_CONV_Pin, 	GPIO_PIN_RESET);
-    	if (!client.tmpReg.bits.HEATER_MISC) 		HAL_GPIO_WritePin(	HEATER_MISC_GPIO_Port, 		HEATER_MISC_Pin, 		GPIO_PIN_RESET);
-    	if (!client.tmpReg.bits.DAYCAM_TEC_ON) 		HAL_GPIO_WritePin(	DAYCAM_TEC_ON_GPIO_Port, 	DAYCAM_TEC_ON_Pin, 		GPIO_PIN_RESET);
-    	if (!client.tmpReg.bits.IR_TEC_ON) 			HAL_GPIO_WritePin(	IR_TEC_ON_GPIO_Port, 		IR_TEC_ON_Pin, 			GPIO_PIN_RESET);
-    	if (!client.tmpReg.bits.IR_COOL_HEAT) 		HAL_GPIO_WritePin(	IR_COOL_HEAT_GPIO_Port, 	IR_COOL_HEAT_Pin, 		GPIO_PIN_RESET);
-    	if (!client.tmpReg.bits.RP_TEC_ON) 			HAL_GPIO_WritePin(	RP_TEC_ON_GPIO_Port, 		RP_TEC_ON_Pin, 			GPIO_PIN_RESET);
-    	if (!client.tmpReg.bits.RP_COOL_HEAT) 		HAL_GPIO_WritePin(	RP_COOL_HEAT_GPIO_Port, 	RP_COOL_HEAT_Pin, 		GPIO_PIN_RESET);
-
-    	printf("Reg: %x\r\n", client.tmpReg.value);
-
+        loopCount++;
+        osDelay(100);  // 1 second delay
     }
 }
 

@@ -4,28 +4,59 @@
 #include <cstdint>
 #include <map>
 #include <deque>
+#include "cmsis_os2.h"
 
+
+enum class DevCommMode {
+    Normal,			//Parse messages
+	Transparent		//Raw forwarding
+};
 
 class UartEndpoint {
 public:
-    explicit UartEndpoint(UART_HandleTypeDef* huart);
-    bool StartReceive(uint8_t* buffer, size_t len);
 
-    virtual void onReceiveByte(uint8_t byte) = 0;  // abstract function
-    virtual void processIncoming();            // derived classes override
-    static void DispatchRxComplete(UART_HandleTypeDef* huart);
+	explicit UartEndpoint(UART_HandleTypeDef* huart, const char* taskName = "UartTask");
+	virtual ~UartEndpoint();
 
+    bool StartReceive();
     uint16_t SendCommand(const uint8_t* command, size_t length);
 
-protected:
-    UART_HandleTypeDef* huart_;
-    uint8_t* rxBuffer_;
-    size_t rxLength_;
+    // Pure virtual - derived classes must implement
+    virtual void processRxData(uint8_t byte) = 0;
 
-    std::deque<uint8_t> rxQueue_;  // ⬅️ byte queue for streaming data
+
+    // Transparent mode
+    void setTransparentMode(bool enable, UART_HandleTypeDef* destination = nullptr);
+    bool isTransparentMode() const { return commMode_ == DevCommMode::Transparent; }
+
+    UART_HandleTypeDef* huart_;
+
+    // ISR callback dispatcher
+    static void DispatchRxComplete(UART_HandleTypeDef* huart);
+
+protected:
+    // Task entry point (static wrapper)
+    static void TaskEntry(void* argument);
+
+    // Actual task loop (virtual, can be overridden)
+    virtual void taskLoop();
+
+    // Queue for received bytes (ISR → Task)
+    osMessageQueueId_t rxQueue_;
+
+    // Transparent mode settings
+    DevCommMode commMode_ = DevCommMode::Normal;
+    UART_HandleTypeDef* destHuart_ = nullptr;
+
+
+private:
+    uint8_t rxByte_;  // Single byte buffer for ISR
+    osThreadId_t taskHandle_;
+    const char* taskName_;
 
     static std::map<UART_HandleTypeDef*, UartEndpoint*> instanceMap;
 };
 
 // ISR (C-linkage)
 extern "C" void HAL_UART_RxCpltCallback(UART_HandleTypeDef* huart);
+

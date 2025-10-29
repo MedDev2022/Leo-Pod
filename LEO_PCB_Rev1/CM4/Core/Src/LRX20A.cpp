@@ -15,22 +15,22 @@
 
 // Provide _write syscall for printf redirection
 extern "C" int _write(int file, char *ptr, int len) {
-    HAL_UART_Transmit(&huart1, (uint8_t*)ptr, len, HAL_MAX_DELAY);
+    HAL_UART_Transmit(&huart4, (uint8_t*)ptr, len, HAL_MAX_DELAY);
     return len;
 }
 
 LRX20A::LRX20A(UART_HandleTypeDef* huart)
-: UartEndpoint(huart) {}
+: UartEndpoint(huart, "LRX20Task") {}
 
 
 void LRX20A::Init() {
 //    static uint8_t byte;
 
 
-    if (!StartReceive(&byte_, 1)) {
-        printf("LRF StartReceive failed\r\n");
+    if (!StartReceive()) {
+        printf("LRF Start Receive failed\r\n");
     }
-    else printf("LRF StartReceive success\r\n");
+    else printf("LRF Start Receive success\r\n");
 }
 
 void LRX20A::InitLRX20A()
@@ -51,7 +51,19 @@ void LRX20A::InitLRX20A()
 	HAL_Delay(100);
 	SetMaximumRangeCommand();
 
-    StartReceive(&byte_, 1);  // Re-arm
+    StartReceive();  // Re-arm
+
+}
+
+
+void LRX20A::processRxData(uint8_t byte) {
+   // uint8_t byte;
+
+    // Handle transparent mode (shouldn't reach here, but just in case)
+    if (destHuart_ != nullptr) {
+        HAL_UART_Transmit(destHuart_, &byte, 1, 100);
+        return;
+    }
 
 }
 
@@ -222,42 +234,9 @@ void LRX20A::UpdateCRC(char* pbyBuff, uint8_t size)
 	pbyBuff[size - 1] = byXorSum;
 }
 
-void LRX20A::onReceiveByte(uint8_t byte) {
-	std::queue<uint8_t> tempQueue{std::deque<uint8_t>(rxQueue_)};
-
- //   printf("📥 Received byte: 0x%02X\n", byte);
-//    rxBuffer_[rxLength_] = byte_;
-
-	if (!rxQueue_.empty()){
-	    printf("rxQueue_: ");
-	    while (!rxQueue_.empty()) {
-	        printf("0x%02X ", rxQueue_.front());
-	        rxQueue_.pop_front();
-	    }
-	    printf("\n");
-	}
-
-
-    StartReceive(&byte_, 1);  // Re-arm
-}
 
 
 
-void LRX20A::processIncoming() {}
 
-//void LRX20A::HandleReceivedData(const std::vector<uint8_t>& data) {
-//    // Example logic to process incoming data
-//    if (data.empty()) {
-//        std::cout << "Received empty data" << std::endl;
-//        return;
-//    }
-//
-//    std::cout << "IRay received data: ";
-//    for (uint8_t byte : data) {
-//        std::cout << std::hex << static_cast<int>(byte) << " ";
-//    }
-//    std::cout << std::endl;
-//
-//    // Add further parsing or handling logic here
-//}
+
 

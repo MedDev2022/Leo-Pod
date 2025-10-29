@@ -29,7 +29,8 @@ private:
     uint8_t rxBuffer[64];  // Adjust size as necessary for your data
     uint8_t byte_;
 protected:
-    void onReceiveByte(uint8_t byte) override;
-    void processIncoming() override;
-
+//    void onReceiveByte(uint8_t byte) override;
+//    void processIncoming() override;
+    // Override the task-based processing
+    void processRxData(uint8_t byte) override;
 };

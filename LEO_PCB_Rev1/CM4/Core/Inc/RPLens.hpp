@@ -49,10 +49,9 @@ public:
     std::map<std::string, int> ParseResponse(const std::vector<uint8_t>& command);
 
 protected:
-    void onReceiveByte(uint8_t byte) override;
-    void processIncoming() override;
-
-
+//    void onReceiveByte(uint8_t byte) override;
+//    void processIncoming() override;
+    void processRxData(uint8_t byte) override;
 private:
 
 

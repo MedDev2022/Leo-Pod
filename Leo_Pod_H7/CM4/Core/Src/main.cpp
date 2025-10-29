@@ -109,7 +109,7 @@ int main(void)
 
   // Populate the map
   //deviceMap[USART1] = &lrf;
-  deviceMap[USART3] = &client;
+  deviceMap[USART3] = &host;
   deviceMap[USART2] = &rpLens;
   deviceMap[USART1] = &fpga;//1843200
 
@@ -138,7 +138,7 @@ int main(void)
   //Lens.ZoomIn();
   HAL_Delay(1000);
   //Lens.ZoomStop();
-  client.StartReceive();
+  host.StartReceive();
 
   fpga.println("I am ready");
 

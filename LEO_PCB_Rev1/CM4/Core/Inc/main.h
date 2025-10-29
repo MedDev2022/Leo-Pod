@@ -33,11 +33,15 @@ extern "C" {
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include "cmsis_os2.h"
+#include "FreeRTOS.h"
+
 extern SPI_HandleTypeDef hspi2;
 extern I2C_HandleTypeDef hi2c2;
 extern UART_HandleTypeDef huart1;
 extern UART_HandleTypeDef huart2;
 extern UART_HandleTypeDef huart3;
+extern UART_HandleTypeDef huart4;
 extern UART_HandleTypeDef huart7;
 extern UART_HandleTypeDef huart8;
 
@@ -140,6 +144,10 @@ void Error_Handler(void);
 #define FPGA_FIFO_RDREQ_GPIO_Port GPIOG
 #define G_THRSHLD_Pin GPIO_PIN_7
 #define G_THRSHLD_GPIO_Port GPIOB
+#define MCU_2_CLI_RXD_Pin GPIO_PIN_8
+#define MCU_2_CLI_RXD_GPIO_Port GPIOB
+#define MCU_2_CLI_TXD_Pin GPIO_PIN_9
+#define MCU_2_CLI_TXD_GPIO_Port GPIOB
 #define MCU_2_IR_RXD_Pin GPIO_PIN_0
 #define MCU_2_IR_RXD_GPIO_Port GPIOE
 #define MCU_2_IR_TXD_Pin GPIO_PIN_1

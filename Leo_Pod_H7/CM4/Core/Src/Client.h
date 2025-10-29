@@ -59,6 +59,6 @@ private:
 
 };
 
-static Client client(USART3, 115200);
+static Client host(USART3, 115200);
 
 #endif /* SRC_CLIENT_H_ */

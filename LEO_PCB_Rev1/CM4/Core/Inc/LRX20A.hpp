@@ -138,8 +138,9 @@ private:
     uint8_t rxBuffer[64];  // Adjust size as necessary for your data
 
 protected:
-    void onReceiveByte(uint8_t byte) override;
-    void processIncoming() override;
+//    void onReceiveByte(uint8_t byte) override;
+//    void processIncoming() override;
+void processRxData(uint8_t byte) override;
 };
 
 #endif /* LRX20A_H_ */

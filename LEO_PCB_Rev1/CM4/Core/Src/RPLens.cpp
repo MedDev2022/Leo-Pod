@@ -24,30 +24,41 @@ void RPLens::Init()
 {
 
 
-    if (!StartReceive(&byte_, 1)) {
-        printf("RPLEns StartReceive failed\n");
+    if (!StartReceive()) {
+        printf("RPLEns Start Receive failed\n");
     }
-    else printf("RPLEns StartReceive success\n");
+    else printf("RPLEns Start Receive success\n");
 }
 
-void RPLens::onReceiveByte(uint8_t byte) {
+//void RPLens::onReceiveByte(uint8_t byte) {
+//
+//	std::queue<uint8_t> tempQueue{std::deque<uint8_t>(rxQueue_)};
+//
+//	printf("📥 RP Received byte: 0x%02X\n", byte);
+////    rxBuffer_[rxLength_] = byte_;
+//
+//	if (rxQueue_.back() == 0xff){
+//	    printf("rxQueue_: ");
+//	    while (!rxQueue_.empty()) {
+//	        printf("0x%02X ", rxQueue_.front());
+//	        rxQueue_.pop_front();
+//	    }
+//	    printf("\n");
+//	}
+//
+//
+//    StartReceive(&byte_, 1);  // Re-arm
+//
+//}
 
-	std::queue<uint8_t> tempQueue{std::deque<uint8_t>(rxQueue_)};
+void RPLens::processRxData(uint8_t byte) {
+   // uint8_t byte;
 
-	printf("📥 RP Received byte: 0x%02X\n", byte);
-//    rxBuffer_[rxLength_] = byte_;
-
-	if (rxQueue_.back() == 0xff){
-	    printf("rxQueue_: ");
-	    while (!rxQueue_.empty()) {
-	        printf("0x%02X ", rxQueue_.front());
-	        rxQueue_.pop_front();
-	    }
-	    printf("\n");
-	}
-
-
-    StartReceive(&byte_, 1);  // Re-arm
+    // Handle transparent mode (shouldn't reach here, but just in case)
+    if (destHuart_ != nullptr) {
+        HAL_UART_Transmit(destHuart_, &byte, 1, 100);
+        return;
+    }
 
 }
 
@@ -60,7 +71,7 @@ void RPLens::ZoomStop() {
 void RPLens::ZoomIn() {
     std::vector<uint8_t> cmd = {0x24, 0x23, 0x00, 0x00, 0x07};
     UpdateCRC(cmd);
-    StartReceive(rxBuffer, 14);  // Start receiving in preparation
+    StartReceive();  // Start receiving in preparation
     SendCommand(cmd.data(), cmd.size());
 }
 
@@ -193,23 +204,7 @@ void RPLens::SetFastFocusPosition(int focusPos)
 
 
 
-void RPLens::processIncoming() {
-	while (!rxQueue_.empty()) {
-		uint8_t byte = rxQueue_.front();
-		rxQueue_.pop_front();
-//        message_.push_back(byte);
 
-		// Example: parse line-terminated message
-		if (byte == '\n') {
-			printf("Client received: ");
-			for (uint8_t c : rxQueue_)
-				printf("%c", c);
-			printf("\r\n");
-
-			rxQueue_.clear();  // ready for next message
-		}
-	}
-}
 
 
 std::map<std::string, int> RPLens::ParseResponse(const std::vector<uint8_t>& command) {

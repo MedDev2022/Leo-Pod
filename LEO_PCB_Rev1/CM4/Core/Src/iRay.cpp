@@ -10,15 +10,19 @@
 #include <queue>
 #include "cmsis_os.h"
 
+
 IRay::IRay(UART_HandleTypeDef* huart)
-    : UartEndpoint(huart) {}
+    : UartEndpoint(huart, "iRayTask") {}
 
 void IRay::Init() {
 //    static uint8_t byte;
-    if (!StartReceive(&byte_, 1)) {
+    if (!StartReceive()) {
         printf("IRay receiver init failed\n");
     }
-    else printf("IRay receiver init success\n");
+    else {
+    	printf("IRay receiver init success\n");
+    }
+
 }
 
 void IRay::SetPalette(const std::string& palette) {
@@ -27,12 +31,19 @@ void IRay::SetPalette(const std::string& palette) {
     }
 }
 
+void IRay::processRxData(uint8_t byte) {
+   // uint8_t byte;
+
+    // Handle transparent mode (shouldn't reach here, but just in case)
+    if (destHuart_ != nullptr) {
+        HAL_UART_Transmit(destHuart_, &byte, 1, 100);
+        return;
+    }
+
+}
+
 void IRay::SetReticlePosition(int x, int y) {
-    uint8_t cmd[] = {0xAA, 0x09, 0x01, 0x44, 0x02, 0x05, 0x64, 0x00, 0x64, 0x00, 0xC7, 0xEB, 0xAA};
-    cmd[6] = static_cast<uint8_t>(x & 0xFF);
-    cmd[7] = static_cast<uint8_t>((x >> 8) & 0xFF);
-    cmd[8] = static_cast<uint8_t>(y & 0xFF);
-    cmd[9] = static_cast<uint8_t>((y >> 8) & 0xFF);
+    uint8_t cmd[] = {0xAA, 0x09, 0x01, 0x44, 0x02, 0x05, (uint8_t)x, (uint8_t)(x>>8), (uint8_t)y, (uint8_t)(y>>8), 0xC7, 0xEB, 0xAA};
     SendCommand(cmd, sizeof(cmd));
 }
 
@@ -57,13 +68,8 @@ void IRay::ReticleOFF() {
 }
 
 void IRay::Reticle1() {
-    const uint8_t color[] = {0xAA, 0x05, 0x01, 0x43, 0x02, 0x80, 0x75, 0xEB, 0xAA};
-    SendCommand(color, sizeof(color));
-    HAL_Delay(1000);
     const uint8_t cmd[] = { 0xAA, 0x05, 0x01, 0x43, 0x02, 0x80, 0x75, 0xEB, 0xAA };
     SendCommand(cmd, sizeof(cmd));
-    StartReceive(rxBuffer, 8);
-
 }
 
 void IRay::Reticle2() {
@@ -81,7 +87,7 @@ void IRay::Reticle4() {
     SendCommand(cmd, sizeof(cmd));
 }
 
-void IRay::ReticleSetPosition() {
+void IRay::ReticleSetPosition() { //Place Reticle on x = 0x0064 and y = 0x0064
     const uint8_t cmd[] = {0xAA, 0x09, 0x01, 0x44, 0x02, 0x05, 0x64, 0x00, 0x64, 0x00, 0xC7, 0xEB, 0xAA};
     SendCommand(cmd, sizeof(cmd));
 }
@@ -94,30 +100,6 @@ void IRay::InitializePalettes() {
     irPalettes["BRY"] = {0xAA, 0x05, 0x01, 0x42, 0x02, 0x04, 0xF8, 0xEB, 0xAA};
 }
 
-void IRay::onReceiveByte(uint8_t byte) {
-
- //   printf("Received byte: 0x%02X\n", byte);
- //   StartReceive(&byte_, 1);  // Re-arm
-
-	// make sure to grab data from the rxQueue_ and process it to avoid overflow.
 
 
-}
 
-void IRay::processIncoming() {
-    while (!rxQueue_.empty()) {
-        uint8_t byte = rxQueue_.front();
-        rxQueue_.pop_front();
-//        message_.push_back(byte);
-
-        // Example: parse line-terminated message
-        if (byte == '\n') {
-            printf("Client received: ");
-            for (uint8_t c : rxQueue_)
-                printf("%c", c);
-            printf("\r\n");
-
-            rxQueue_.clear();  // ready for next message
-        }
-    }
-}
