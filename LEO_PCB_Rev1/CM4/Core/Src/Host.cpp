@@ -8,6 +8,11 @@
 #include "task.h"
 #include "comm.hpp"
 
+
+extern UART_HandleTypeDef* g_DebugUart;
+
+
+
 Host::Host(UART_HandleTypeDef* huart)
     : UartEndpoint(huart, "HostTask") {
 
@@ -24,6 +29,8 @@ Host::Host(UART_HandleTypeDef* huart)
         printf("Host: Failed to create timeout timer\r\n");
     }
 }
+
+
 
 void Host::Init() {
     if (!StartReceive()) {
@@ -64,11 +71,13 @@ void Host::stopTimeoutTimer() {
 
 // Handle timeout event
 void Host::handleTimeout() {
+	stopTimeoutTimer();
     printf("Host: byte receive timeout triggered! bufferIndex_=%u, transparent=%d\r\n",
            bufferIndex_, (destHuart_ != nullptr));
 
     // Only handle timeout if we're actually receiving
     if (rxState_ != RxState::Receiving || bufferIndex_ == 0) {
+        printf("Host: Exited from timer handler RxState=%u BafferIndex=%u\r\n", (rxState_ == RxState::Receiving),bufferIndex_);
         return;
     }
 
@@ -95,8 +104,8 @@ void Host::handleTimeout() {
     void Host::processRxData(uint8_t byte) {
         const TickType_t now = xTaskGetTickCount();
 
-//        printf("Host: RX byte=0x%02X state=%d bufIdx=%u transparent=%d\r\n",
-//               byte, (int)rxState_, bufferIndex_, (destHuart_ != nullptr));
+        printf("Host: RX byte=0x%02X state=%d bufIdx=%u transparent=%d\r\n",
+        		byte, (int)rxState_, bufferIndex_, (destHuart_ != nullptr));
 
         // Handle transparent mode - SNIFF for commands
         if (destHuart_ != nullptr) {
@@ -108,11 +117,10 @@ void Host::handleTimeout() {
                 firstByteTick_ = now;
                 rxState_ = RxState::Receiving;
 
+                printf("Host: [Transparent] Header detected, timer started\r\n");
+
                 // Start byte receive timeout timer
                 startTimeoutTimer();
-
-
-                printf("Host: [Transparent] Header detected, timer started\r\n");
                 return;  // Don't forward this byte yet
             }
 
@@ -192,6 +200,16 @@ void Host::handleTimeout() {
                             // Switch device command
                             printf("Host: [Transparent] Switch device command received\r\n");
                             parseAndProcess(rxMsg);
+
+
+
+                            // Print complete message
+                            printf("  Full msg: ");
+                            for (uint8_t i = 0; i < expectedLength_; i++) {
+                                printf("%02X ", buffer_[i]);
+                            }
+                            printf("\r\n");
+
                             resetReception();
                             return;
                         }
@@ -223,6 +241,8 @@ void Host::handleTimeout() {
             return;
         }
 
+        else
+        {
         // Normal mode (not transparent)
         switch (rxState_) {
             case RxState::Ready:
@@ -334,6 +354,7 @@ void Host::handleTimeout() {
                 resetReception();
                 break;
         }
+        }
     }
 
 
@@ -443,8 +464,41 @@ void Host::parseAndProcess(const comm::Message& msg) {
         case 0x81:  // Exit transparent mode
             if (length == 0) {
                 this->destHuart_ = nullptr;
-                printf("Host exited transparent mode\r\n");
+                dayCam_->setTransparentMode(false, nullptr);
+                iRay_->setTransparentMode(false, nullptr);
+                lrx20A_->setTransparentMode(false, nullptr);
+                rpLens_->setTransparentMode(false, nullptr);
+                printf("Host exit transparent mode\r\n");
+                break;
             }
+            break;
+
+        case 0x82:  // Debug to Host/CLI
+            if (length == 1 && payload != nullptr) {
+            	switch (payload[0])
+            	{
+            	case 0:
+            		printf("Debug forwarded to CLI\r\n");
+            		g_DebugUart = cli_->huart_;
+            		break;
+            	case 1:
+            		printf("Debug forwarded to HOST\r\n");
+            		g_DebugUart = this->huart_;
+            		break;
+            	}
+//                this->destHuart_ = nullptr;
+//                dayCam_->setTransparentMode(false, nullptr);
+//                iRay_->setTransparentMode(false, nullptr);
+//                lrx20A_->setTransparentMode(false, nullptr);
+//                rpLens_->setTransparentMode(false, nullptr);
+//                printf("Host exit transparent mode\r\n");
+//                break;
+//
+//                if (dayCam_ && payload != nullptr) {
+//                    dayCam_->handleZoomOut(const_cast<uint8_t*>(payload), length);
+//                    printf("DayCam Zoom Out\r\n");
+               }
+
             break;
 
         case 0x90: //Get temperatures
@@ -504,9 +558,9 @@ void Host::resetReception() {
 
     // DRAIN THE QUEUE (This is the key!)
     uint8_t dummy;
-    while (osMessageQueueGet(rxQueue_, &dummy, nullptr, 0) == osOK) {
-        // Discard any leftover bytes
-    }
+//    while (osMessageQueueGet(rxQueue_, &dummy, nullptr, 0) == osOK) {
+//        // Discard any leftover bytes
+//    }
 
     // Reset index and state
     bufferIndex_ = 0;
@@ -528,6 +582,7 @@ bool Host::verifyCRC(uint8_t* msg, size_t len) {
         crc ^= msg[i];
     }
 
+
     return crc == msg[len - 2];
 }
 
@@ -536,3 +591,5 @@ void Host::setLRF(LRX20A* lrf) { lrx20A_ = lrf; }
 void Host::setIRay(IRay* cam) { iRay_ = cam; }
 void Host::setRPLens(RPLens* lens) { rpLens_ = lens; }
 void Host::setCli(CLI* cli) { cli_ = cli; }
+
+

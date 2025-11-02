@@ -89,7 +89,7 @@ private:
 
     // FreeRTOS software timer for receive timeout
     TimerHandle_t timeoutTimer_ = nullptr;
-    static constexpr uint32_t TIMEOUT_MS = 50;
+    static constexpr uint32_t TIMEOUT_MS = 100;
 
 
 

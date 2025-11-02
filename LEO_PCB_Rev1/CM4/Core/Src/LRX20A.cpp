@@ -11,12 +11,25 @@
 #include "cmsis_os.h"
 
 
+
 #define READ_PORT
+
+extern UART_HandleTypeDef* g_DebugUart;
 
 // Provide _write syscall for printf redirection
 extern "C" int _write(int file, char *ptr, int len) {
-    HAL_UART_Transmit(&huart4, (uint8_t*)ptr, len, HAL_MAX_DELAY);
+
+	UART_HandleTypeDef* huart = g_DebugUart;
+
+    if (huart == nullptr) {
+        huart = &huart4; // pick a safe default that always exists
+    }
+
+    HAL_UART_Transmit(huart, (uint8_t*)ptr, len, HAL_MAX_DELAY);
     return len;
+
+//    HAL_UART_Transmit(&huart4, (uint8_t*)ptr, len, HAL_MAX_DELAY);
+//    return len;
 }
 
 LRX20A::LRX20A(UART_HandleTypeDef* huart)

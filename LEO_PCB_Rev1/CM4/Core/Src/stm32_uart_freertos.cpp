@@ -33,7 +33,8 @@ extern "C" void MyTaskFunction(void *argument);  // Forward declaration
 // Provide _write syscall for printf redirection
 extern "C" int _write(int file, char *ptr, int len);
 
-
+// This is the global active debug UART for printf
+UART_HandleTypeDef* g_DebugUart = &huart4;  // default (pick whatever you want)
 
 //typedef union {
 //    uint16_t value;   // packed 32-bit register/value

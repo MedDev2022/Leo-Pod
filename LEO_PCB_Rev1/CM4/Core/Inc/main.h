@@ -50,6 +50,8 @@ extern UART_HandleTypeDef huart8;
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 
+
+
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/

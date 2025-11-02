@@ -130,6 +130,7 @@ public:
 	void SetMinimumRangeCommand();
 	void SetMaximumRangeCommand();
 
+
 private:
 	
 
