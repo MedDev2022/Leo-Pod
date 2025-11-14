@@ -39,6 +39,7 @@ public:
     struct Config {
         I2C_HandleTypeDef* hi2c;
         uint8_t muxAddr7bit = 0x70;      // PCA9546A default address
+        uint8_t muxChannel  = 0;
         uint8_t sensorAddr7bit = 0x44;   // STS4L default address (same for all)
         uint32_t i2cTimeoutMs = 20;
         bool autoDetect = true;          // Automatically detect connected sensors

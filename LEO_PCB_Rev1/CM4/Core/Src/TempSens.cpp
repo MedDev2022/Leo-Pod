@@ -6,23 +6,23 @@
 
 // ---------- TUNE THESE IF YOUR VARIANT DIFFERS ----------
 // Sensirion STS4x / SHT4x-style commands:
-static const uint8_t CMD_MEASURE_HIGHREP[2] = { 0xFD, 0x00 }; // 0xFD, 1-byte in some docs; we send as 2 with 0x00
-static const uint8_t CMD_SOFT_RESET[2]      = { 0x94, 0x00 };
-static const uint8_t CMD_READ_SERIAL[2]     = { 0x89, 0xF6 };
+static const uint8_t CMD_MEASURE_HIGHREP[1] = { 0xFD }; // 0xFD, 1-byte in some docs; we send as 2 with 0x00
+static const uint8_t CMD_SOFT_RESET[1]      = { 0x94 };
+static const uint8_t CMD_READ_SERIAL[1]     = { 0x89 };
 // Response formats assumed below: temp is 2 bytes + CRC (1 byte).
 // --------------------------------------------------------
 
 STS4L::STS4L(const Config& cfg) : cfg_(cfg) {}
 
 HAL_StatusTypeDef STS4L::selectMux() {
-    if (lastMux_ == cfg_.muxChannel) return HAL_OK;
+//    if (lastMux_ == cfg_.muxChannel) return HAL_OK;
     uint8_t sel = (1u << (cfg_.muxChannel & 0x03));
     HAL_StatusTypeDef st = HAL_I2C_Master_Transmit(
         cfg_.hi2c,
         static_cast<uint16_t>(cfg_.muxAddr7bit << 1),
         &sel, 1,
         cfg_.i2cTimeoutMs
-    );
+   );
     if (st == HAL_OK) lastMux_ = cfg_.muxChannel;
     return st;
 }
@@ -93,14 +93,14 @@ HAL_StatusTypeDef STS4L::readTemperature(float& outTempC) {
     return HAL_OK;
 }
 
-HAL_StatusTypeDef STS4L::commandRead(const uint8_t cmd[2], uint8_t* rx, uint16_t rxLen) {
+HAL_StatusTypeDef STS4L::commandRead(const uint8_t cmd[1], uint8_t* rx, uint16_t rxLen) {
     HAL_StatusTypeDef st = selectMux();
     if (st != HAL_OK) return st;
 
     st = HAL_I2C_Master_Transmit(
         cfg_.hi2c,
         static_cast<uint16_t>(cfg_.devAddr7bit << 1),
-        const_cast<uint8_t*>(cmd), 2,
+        const_cast<uint8_t*>(cmd), 1,
         cfg_.i2cTimeoutMs
     );
     if (st != HAL_OK) return st;

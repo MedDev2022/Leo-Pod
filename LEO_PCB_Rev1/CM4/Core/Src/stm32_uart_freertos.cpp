@@ -92,6 +92,12 @@ extern "C" void cpp_app_main(void)
 
 
 void i2c_scan(I2C_HandleTypeDef* hi2c) {
+
+
+	HAL_GPIO_WritePin(TMP_I2C_ADR0_GPIO_Port, TMP_I2C_ADR0_Pin,GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TMP_I2C_ADR1_GPIO_Port, TMP_I2C_ADR1_Pin,GPIO_PIN_SET);
+
+
     printf("\r\nI2C Bus Scan:\r\n");
     uint8_t found = 0;
     for (uint8_t a = 0x03; a < 0x78; ++a) {
@@ -166,7 +172,7 @@ extern  void MyTaskFunction(void *argument)
     // Create temperature sensor manager
     TempSensorManager::Config tempCfg = {
         .hi2c = &hi2c2,
-        .muxAddr7bit = 0x70,        // PCA9546A multiplexer address
+        .muxAddr7bit = 0x73,        // PCA9546A multiplexer address
         .sensorAddr7bit = 0x44,     // STS4L sensor address (same on all channels)
         .i2cTimeoutMs = 20,
         .autoDetect = true           // Automatically detect connected sensors
@@ -191,7 +197,7 @@ extern  void MyTaskFunction(void *argument)
         // Copy temperatures to Host for UART transmission
         g_tempSensors->getAllTemperaturesScaled(g_host->Temp);
 
-        printf("Temperatures copied to Host:\r\n");
+
         for (uint8_t i = 0; i < 4; i++) {
             if (g_tempSensors->isConnected(i)) {
                 printf("  Temp[%u] = %.2f°C (0x%04X)\r\n",
@@ -264,7 +270,7 @@ extern  void MyTaskFunction(void *argument)
                 printf("\r\n--- Temperature Reading (Loop %lu) ---\r\n", loopCount);
                 for (uint8_t i = 0; i < 4; i++) {
                     if (g_tempSensors->isConnected(i)) {
-                        printf("Ch%u: %.2f°C (0x%04X) %s\r\n",
+                        printf("Ch%u: %.2f degC (0x%04X) %s\r\n",// °C
                                i,
                                g_tempSensors->getTemperature(i),
                                g_host->Temp[i],

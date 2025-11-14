@@ -104,8 +104,8 @@ void Host::handleTimeout() {
     void Host::processRxData(uint8_t byte) {
         const TickType_t now = xTaskGetTickCount();
 
-        printf("Host: RX byte=0x%02X state=%d bufIdx=%u transparent=%d\r\n",
-        		byte, (int)rxState_, bufferIndex_, (destHuart_ != nullptr));
+//        printf("Host: RX byte=0x%02X state=%d bufIdx=%u transparent=%d\r\n",
+//        		byte, (int)rxState_, bufferIndex_, (destHuart_ != nullptr));
 
         // Handle transparent mode - SNIFF for commands
         if (destHuart_ != nullptr) {

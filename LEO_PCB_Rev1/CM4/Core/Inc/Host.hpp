@@ -89,7 +89,7 @@ private:
 
     // FreeRTOS software timer for receive timeout
     TimerHandle_t timeoutTimer_ = nullptr;
-    static constexpr uint32_t TIMEOUT_MS = 100;
+    static constexpr uint32_t TIMEOUT_MS = 50;
 
 
 
@@ -102,6 +102,8 @@ private:
     IRay* iRay_ = nullptr;
     RPLens* rpLens_ = nullptr;
     CLI* cli_ = nullptr;
+
+    int    lastMux_ = -1;
 };
 
 #endif // HOST_HPP

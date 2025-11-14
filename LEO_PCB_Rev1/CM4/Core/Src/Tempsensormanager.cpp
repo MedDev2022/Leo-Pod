@@ -43,6 +43,7 @@ uint8_t TempSensorManager::init() {
                 HAL_StatusTypeDef st = sensors_[ch]->softReset();
                 osDelay(2);
 
+
                 if (st == HAL_OK) {
                     // Try to read serial number
                     uint32_t serial = 0;
@@ -147,6 +148,9 @@ uint8_t TempSensorManager::readAll() {
 
 float TempSensorManager::getTemperature(uint8_t channel) const {
     if (channel >= MAX_SENSORS) return 0.0f;
+//    float tC = 0.f;
+//    sensors_.at(channel)->readTemperature(tC);
+//    return tC;
     return status_[channel].temperatureC;
 }
 

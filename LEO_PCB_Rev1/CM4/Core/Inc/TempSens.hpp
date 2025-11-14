@@ -8,7 +8,7 @@ public:
         I2C_HandleTypeDef* hi2c;
         uint8_t            muxAddr7bit = 0x70; // PCA9546A default
         uint8_t            muxChannel  = 0;    // 0..3
-        uint8_t            devAddr7bit;        // sensor I2C 7-bit address
+        uint8_t            devAddr7bit = 0x44 ;        // sensor I2C 7-bit address
         uint32_t           i2cTimeoutMs = 20;
     };
 
