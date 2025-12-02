@@ -9,13 +9,24 @@
 #include <cstring>
 #include <queue>
 #include "cmsis_os.h"
+#include "comm.hpp"
 
 
 IRay::IRay(UART_HandleTypeDef* huart)
     : UartEndpoint(huart, "iRayTask") {}
 
 void IRay::Init() {
-//    static uint8_t byte;
+
+    if (huart_ == nullptr || huart_->Instance == nullptr) {
+        printf("IRay: UART handle invalid!\r\n");
+        return;
+    }
+
+    printf("IRay: UART%d state = %d\r\n",
+           (huart_->Instance == UART8) ? 8 : 0,
+           HAL_UART_GetState(huart_));
+
+    setProtocol();
     if (!StartReceive()) {
         printf("IRay receiver init failed\n");
     }
@@ -31,13 +42,19 @@ void IRay::SetPalette(const std::string& palette) {
     }
 }
 
+void IRay::setProtocol(){
+	const uint8_t command[] = {0x76, 0x69, 0x64, 0x65, 0x6F, 0x20, 0x75, 0x74, 0x70, 0x75, 0x74, 0x20, 0x33, 0x0D};
+    SendCommand(command, sizeof(command));
+}
+
+
 void IRay::processRxData(uint8_t byte) {
-   // uint8_t byte;
+
+
 
     // Handle transparent mode (shouldn't reach here, but just in case)
-    if (destHuart_ != nullptr) {
-        HAL_UART_Transmit(destHuart_, &byte, 1, 100);
-        return;
+    if (destEndpoint_ != nullptr) {
+        destEndpoint_->write(&byte, 1);
     }
 
 }

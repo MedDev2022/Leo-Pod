@@ -16,22 +16,6 @@
 
 extern UART_HandleTypeDef* g_DebugUart;
 
-// Provide _write syscall for printf redirection
-extern "C" int _write(int file, char *ptr, int len) {
-
-	UART_HandleTypeDef* huart = g_DebugUart;
-
-    if (huart == nullptr) {
-        huart = &huart4; // pick a safe default that always exists
-    }
-
-    HAL_UART_Transmit(huart, (uint8_t*)ptr, len, HAL_MAX_DELAY);
-    return len;
-
-//    HAL_UART_Transmit(&huart4, (uint8_t*)ptr, len, HAL_MAX_DELAY);
-//    return len;
-}
-
 LRX20A::LRX20A(UART_HandleTypeDef* huart)
 : UartEndpoint(huart, "LRX20Task") {}
 
@@ -73,9 +57,8 @@ void LRX20A::processRxData(uint8_t byte) {
    // uint8_t byte;
 
     // Handle transparent mode (shouldn't reach here, but just in case)
-    if (destHuart_ != nullptr) {
-        HAL_UART_Transmit(destHuart_, &byte, 1, 100);
-        return;
+    if (destEndpoint_ != nullptr) {
+        destEndpoint_->write(&byte, 1);
     }
 
 }

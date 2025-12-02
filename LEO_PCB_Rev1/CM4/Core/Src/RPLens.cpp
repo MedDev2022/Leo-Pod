@@ -1,6 +1,5 @@
 
 #include <RPLens.hpp>
-#include <iostream>
 #include <cstring>
 #include <queue>
 #include "cmsis_os.h"
@@ -9,8 +8,10 @@
 //RPLens::RPLens(USART_TypeDef * portName, int defaultBaudRate)
 //   : UartEndpoint(portName, defaultBaudRate, SERIAL_8N1) {}
 
-RPLens::RPLens (UART_HandleTypeDef* huart)
-    : UartEndpoint(huart) {}
+RPLens::RPLens(UART_HandleTypeDef* huart)
+    : UartEndpoint(huart, "RPLensTask") {}  // Remove space from task name
+
+
 
 //bool RPLens::Connect(USART_TypeDef * portName, int baudRate) {
 //    bool isConnected = UartEndpoint::Connect(portName, baudRate);
@@ -55,9 +56,8 @@ void RPLens::processRxData(uint8_t byte) {
    // uint8_t byte;
 
     // Handle transparent mode (shouldn't reach here, but just in case)
-    if (destHuart_ != nullptr) {
-        HAL_UART_Transmit(destHuart_, &byte, 1, 100);
-        return;
+    if (destEndpoint_ != nullptr) {
+        destEndpoint_->write(&byte, 1);
     }
 
 }
@@ -70,8 +70,11 @@ void RPLens::ZoomStop() {
 
 void RPLens::ZoomIn() {
     std::vector<uint8_t> cmd = {0x24, 0x23, 0x00, 0x00, 0x07};
+
+    const uint8_t command[] = {0x30, 0x01, 0x00};
+
     UpdateCRC(cmd);
-    StartReceive();  // Start receiving in preparation
+//    StartReceive();  // Start receiving in preparation
     SendCommand(cmd.data(), cmd.size());
 }
 
@@ -79,14 +82,14 @@ void RPLens::ZoomIn() {
 void RPLens::handleZoomIn(void){
 
     uint8_t cmd[] = {0x24, 0x23, 0x00, 0x00, 0x07};
-	this->SendCommand(cmd, sizeof(cmd));
+	SendCommand(cmd, sizeof(cmd));
 
 }
 
 void RPLens::handleZoomOut(void){
 
     uint8_t cmd[] = {0x24, 0x24, 0x00, 0x00, 0x00};
-	this->SendCommand(cmd, sizeof(cmd));
+	SendCommand(cmd, sizeof(cmd));
 
 }
 
@@ -104,7 +107,7 @@ void RPLens::ZoomOut() {
 }
 
 void RPLens::SetZoomPosition(int pos) {
-    std::vector<uint8_t> cmd = {0x24, 0x47, 0x02, 0x00, static_cast<uint8_t>(pos & 0xFF), static_cast<uint8_t>((pos >> 8) & 0xFF), 0x00};
+    std::vector<uint8_t> cmd = {0x24, 0x47, 0x02, 0x00,  static_cast<uint8_t>(pos & 0xFF), static_cast<uint8_t>((pos >> 8) & 0xFF), 0x00};
     UpdateCRC(cmd);
     SendCommand(cmd.data(), cmd.size());
 }
@@ -119,7 +122,9 @@ void RPLens::SetZoomPosition(int pos) {
 
 void RPLens::SetFocusNear()
 {
-	uint8_t cmd[] = {0x24, 0x0A, 0x0, 0x0, 0x2E };
+	std::vector<uint8_t> cmd = {0x24, 0x0A, 0x0, 0x0, 0x2E };
+	UpdateCRC(cmd);
+	SendCommand(cmd.data(), cmd.size());
 }
 
 void RPLens::SetContinuousFocusNear()
@@ -240,18 +245,6 @@ std::map<std::string, int> RPLens::ParseResponse(const std::vector<uint8_t>& com
 
 }
 
-//void RPLens::OnDataReceivedHandler(const std::vector<uint8_t>& command) {
-//    inputDataQueue.push(command);
-//}
-
-//void RPLens::SendCommand(const std::vector<uint8_t>& command) {
-//    HAL_UART_Transmit(huart, const_cast<uint8_t*>(command.data()), command.size(), HAL_MAX_DELAY);
-//    std::cout << "Command sent: ";
-//    for (uint8_t byte : command) {
-//        std::cout << std::hex << static_cast<int>(byte) << " ";
-//    }
-//    std::cout << std::endl;
-//}
 
 void RPLens::UpdateCRC(std::vector<uint8_t>& cmd) {
     uint8_t crc = 0;
@@ -287,9 +280,7 @@ void RPLens::InputMessageInfo::Reset() {
 }
 
 
-void onReceiveByte(uint8_t byte){
 
-}
 void processIncoming() {
 
 }

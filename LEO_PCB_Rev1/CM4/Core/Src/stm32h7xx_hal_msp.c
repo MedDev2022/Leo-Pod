@@ -312,7 +312,7 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
     PF6     ------> UART7_RX
     PF7     ------> UART7_TX
     */
-    GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_7;
+    GPIO_InitStruct.Pin = MCU_2_RPLENS_RXD_Pin|MCU_2_RPLENS_TXD_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -517,7 +517,7 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* huart)
     PF6     ------> UART7_RX
     PF7     ------> UART7_TX
     */
-    HAL_GPIO_DeInit(GPIOF, GPIO_PIN_6|GPIO_PIN_7);
+    HAL_GPIO_DeInit(GPIOF, MCU_2_RPLENS_RXD_Pin|MCU_2_RPLENS_TXD_Pin);
 
     /* UART7 interrupt DeInit */
     HAL_NVIC_DisableIRQ(UART7_IRQn);

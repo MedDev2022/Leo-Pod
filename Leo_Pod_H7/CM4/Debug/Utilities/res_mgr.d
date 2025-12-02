@@ -1,6 +1,6 @@
 Utilities/res_mgr.o: \
- C:/SPB_Data/git/Leo-Pod/Leo_Pod_H7/Utilities/ResourcesManager/res_mgr.c \
- C:/SPB_Data/git/Leo-Pod/Leo_Pod_H7/Utilities/ResourcesManager/res_mgr.h \
+ C:/Users/krinm/git/Leo-Pod/Leo_Pod_H7/Utilities/ResourcesManager/res_mgr.c \
+ C:/Users/krinm/git/Leo-Pod/Leo_Pod_H7/Utilities/ResourcesManager/res_mgr.h \
  ../../Common/Inc/res_mgr_conf.h \
  ../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h \
  ../Core/Inc/stm32h7xx_hal_conf.h \
@@ -32,7 +32,7 @@ Utilities/res_mgr.o: \
  ../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pwr_ex.h \
  ../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_uart.h \
  ../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_uart_ex.h
-C:/SPB_Data/git/Leo-Pod/Leo_Pod_H7/Utilities/ResourcesManager/res_mgr.h:
+C:/Users/krinm/git/Leo-Pod/Leo_Pod_H7/Utilities/ResourcesManager/res_mgr.h:
 ../../Common/Inc/res_mgr_conf.h:
 ../../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h:
 ../Core/Inc/stm32h7xx_hal_conf.h:

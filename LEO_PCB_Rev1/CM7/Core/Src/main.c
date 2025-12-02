@@ -42,9 +42,17 @@
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
 
+
+uint8_t txBuf[] = "Hello DMA UART6\r\n";
+
+
+
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+
+UART_HandleTypeDef huart6;
+DMA_HandleTypeDef hdma_usart6_rx;
 
 /* USER CODE BEGIN PV */
 
@@ -53,12 +61,24 @@
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MPU_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
+static void MX_USART6_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+ uint8_t RxBuff1[600];
+uint8_t RxBuff2[200];
+ uint8_t RxBuff3[20];
+ uint8_t RxBuff[600];
+
+
+ uint8_t RXBuffReady = 0 ;
+ uint8_t RX_size = 0;
 
 /* USER CODE END 0 */
 
@@ -82,7 +102,7 @@ int main(void)
 /* USER CODE BEGIN Boot_Mode_Sequence_1 */
   /* Wait until CPU2 boots and enters in stop mode or timeout*/
   timeout = 0xFFFF;
-  while((__HAL_RCC_GET_FLAG(RCC_FLAG_D2CKRDY) != RESET) && (timeout-- > 0));
+ while((__HAL_RCC_GET_FLAG(RCC_FLAG_D2CKRDY) != RESET) && (timeout-- > 0));
   if ( timeout < 0 )
   {
   Error_Handler();
@@ -124,7 +144,15 @@ Error_Handler();
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_USART6_UART_Init();
   /* USER CODE BEGIN 2 */
+
+  HAL_UARTEx_ReceiveToIdle_DMA(&huart6, RxBuff1, 516);
+  __HAL_DMA_DISABLE_IT(&hdma_usart6_rx, DMA_IT_HT); // Disable Half Transfer interrupt
+  __HAL_UART_ENABLE_IT(&huart6, UART_IT_IDLE);
+
 
   /* USER CODE END 2 */
 
@@ -132,6 +160,14 @@ Error_Handler();
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+
+	    HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
+
+	    //HAL_UART_Transmit_DMA(&huart6, txBuf, sizeof(txBuf)-1);
+	    HAL_UART_Transmit_IT(&huart6, txBuf, sizeof(txBuf)-1);
+
+	    HAL_Delay(1000);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -198,7 +234,223 @@ void SystemClock_Config(void)
   }
 }
 
+/**
+  * @brief USART6 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART6_UART_Init(void)
+{
+
+  if (ResMgr_Request(RESMGR_ID_USART6, RESMGR_FLAGS_ACCESS_NORMAL | \
+                  RESMGR_FLAGS_CPU1 , 0, NULL) != RESMGR_OK)
+  {
+    /* USER CODE BEGIN RESMGR_UTILITY_USART6 */
+    Error_Handler();
+    /* USER CODE END RESMGR_UTILITY_USART6 */
+  }
+  /* USER CODE BEGIN USART6_Init 0 */
+
+  /* USER CODE END USART6_Init 0 */
+
+  /* USER CODE BEGIN USART6_Init 1 */
+
+  /* USER CODE END USART6_Init 1 */
+  huart6.Instance = USART6;
+  huart6.Init.BaudRate = 115200;
+  huart6.Init.WordLength = UART_WORDLENGTH_8B;
+  huart6.Init.StopBits = UART_STOPBITS_1;
+  huart6.Init.Parity = UART_PARITY_NONE;
+  huart6.Init.Mode = UART_MODE_TX_RX;
+  huart6.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart6.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart6.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart6.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart6.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart6) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart6, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart6, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_DisableFifoMode(&huart6) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART6_Init 2 */
+
+  /* USER CODE END USART6_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  if (ResMgr_Request(RESMGR_ID_DMA1, RESMGR_FLAGS_ACCESS_NORMAL | \
+                  RESMGR_FLAGS_CPU1 , 0, NULL) != RESMGR_OK)
+  {
+    /* USER CODE BEGIN RESMGR_UTILITY_DMA1 */
+    Error_Handler();
+    /* USER CODE END RESMGR_UTILITY_DMA1 */
+  }
+  if (ResMgr_Request(RESMGR_ID_DMA2, RESMGR_FLAGS_ACCESS_NORMAL | \
+                  RESMGR_FLAGS_CPU1 , 0, NULL) != RESMGR_OK)
+  {
+    /* USER CODE BEGIN RESMGR_UTILITY_DMA2 */
+    Error_Handler();
+    /* USER CODE END RESMGR_UTILITY_DMA2 */
+  }
+  if (ResMgr_Request(RESMGR_ID_DMAMUX1, RESMGR_FLAGS_ACCESS_NORMAL | \
+                  RESMGR_FLAGS_CPU1 , 0, NULL) != RESMGR_OK)
+  {
+    /* USER CODE BEGIN RESMGR_UTILITY_DMAMUX1 */
+    Error_Handler();
+    /* USER CODE END RESMGR_UTILITY_DMAMUX1 */
+  }
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Stream0_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+
+}
+
+/**
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPIO_Init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+
+  /* USER CODE END MX_GPIO_Init_1 */
+
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : MCU_LED_1_Pin */
+  GPIO_InitStruct.Pin = MCU_LED_1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(MCU_LED_1_GPIO_Port, &GPIO_InitStruct);
+
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+
+  /* USER CODE END MX_GPIO_Init_2 */
+}
+
 /* USER CODE BEGIN 4 */
+
+
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size)
+{
+
+
+	HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
+
+//    HAL_UARTEx_ReceiveToIdle_DMA(&huart6, RxBuff1, 516);
+//    __HAL_DMA_DISABLE_IT(&hdma_usart6_rx, DMA_IT_HT); //Disable Half-Transfer interrupt,  HAL_UARTEx_ReceiveToIdle_DMA()automatically enables the half-transfer interrupt (HT)
+//    __HAL_UART_ENABLE_IT(&huart6, UART_IT_IDLE);  // Ensure IDLE detection is enabled
+
+    if (huart->Instance == USART6)
+    {
+    	RX_size = size;
+
+
+    	// ✅ Clear relevant UART flags before processing
+    	__HAL_UART_DISABLE_IT(&huart6, UART_IT_IDLE);  // Ensure IDLE detection is enabled
+
+        if (__HAL_UART_GET_FLAG(&huart6, UART_FLAG_RXNE)) {
+            __HAL_UART_CLEAR_FLAG(&huart6, UART_FLAG_RXNE); // Clear Receive Not Empty flag
+            // Process received data
+        }
+
+        if (__HAL_UART_GET_FLAG(&huart6, UART_FLAG_IDLE)) {
+            __HAL_UART_CLEAR_FLAG(&huart6, UART_FLAG_IDLE); // Clear idle flag
+            // Process received data
+        }
+
+        if (__HAL_UART_GET_FLAG(&huart6, UART_FLAG_ORE)) {
+            __HAL_UART_CLEAR_FLAG(&huart6, UART_FLAG_ORE); // Clear overrun flag
+            // Handle overrun condition
+        }
+
+        if (__HAL_UART_GET_FLAG(&huart6, UART_FLAG_FE)) {
+            __HAL_UART_CLEAR_FLAG(&huart6, UART_FLAG_FE); // Clear framing error flag
+            // Handle framing error
+        }
+
+        if (__HAL_UART_GET_FLAG(&huart6, UART_FLAG_NE)) {
+            __HAL_UART_CLEAR_FLAG(&huart6, UART_FLAG_NE); // Clear noise error flag
+            // Handle noise error
+        }
+
+        if (__HAL_UART_GET_FLAG(&huart6, UART_FLAG_PE)) {
+            __HAL_UART_CLEAR_FLAG(&huart6, UART_FLAG_PE); // Clear Parity Error flag
+            // Handle noise error
+        }
+
+
+        if (__HAL_UART_GET_FLAG(&huart6, UART_FLAG_TC)) {
+            __HAL_UART_CLEAR_FLAG(&huart6, UART_FLAG_TC); // Clear Transmission Complete flag
+            // Process received data
+        }
+
+        // ✅ Invalidate cache for data coherency
+         SCB_InvalidateDCache_by_Addr((uint32_t *)RxBuff1, size);
+
+          // Restart DMA reception
+          if (size != 516 || RxBuff1[0] != 0xAA ||  RxBuff1[1] != 0x55) //&& RxBuff1[3] != 0)
+          {
+        	  printf("UART1: incorrect size = %u or header %x %x", size,RxBuff1[0],RxBuff1[1]); // Debug message
+			  HAL_UARTEx_ReceiveToIdle_DMA(&huart6, RxBuff1, 516);
+			  __HAL_DMA_DISABLE_IT(&hdma_usart6_rx, DMA_IT_HT); //Disable Half-Transfer interrupt,  HAL_UARTEx_ReceiveToIdle_DMA()automatically enables the half-transfer interrupt (HT)
+			  __HAL_UART_ENABLE_IT(&huart6, UART_IT_IDLE);  // Ensure IDLE detection is enabled
+
+          }
+          else
+          {
+        	  //HAL_GPIO_WritePin(USER_LED1_GPIO_Port, USER_LED1_Pin,GPIO_PIN_SET);
+        	  memcpy(RxBuff, RxBuff1, 516);
+        	  RXBuffReady = 1;
+        	  //HAL_GPIO_WritePin(USER_LED1_GPIO_Port, USER_LED1_Pin,GPIO_PIN_RESET);
+
+        	  HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
+
+    	      HAL_UARTEx_ReceiveToIdle_DMA(&huart6, RxBuff1, 516);
+    	      __HAL_DMA_DISABLE_IT(&hdma_usart6_rx, DMA_IT_HT); //Disable Half-Transfer interrupt,  HAL_UARTEx_ReceiveToIdle_DMA()automatically enables the half-transfer interrupt (HT)
+    	      __HAL_UART_ENABLE_IT(&huart6, UART_IT_IDLE);  // Ensure IDLE detection is enabled
+          }
+
+      }
+
+
+
+    static uint8_t eventHandled = 0;  // Prevent handling duplicate events
+
+
+
+
+}
+
 
 /* USER CODE END 4 */
 

@@ -76,8 +76,10 @@ void Error_Handler(void);
 #define TMP_I2C_SDA_GPIO_Port GPIOF
 #define TMP_I2C_SCL_Pin GPIO_PIN_1
 #define TMP_I2C_SCL_GPIO_Port GPIOF
-#define MCU_LED_1_Pin GPIO_PIN_0
-#define MCU_LED_1_GPIO_Port GPIOC
+#define MCU_2_RPLENS_RXD_Pin GPIO_PIN_6
+#define MCU_2_RPLENS_RXD_GPIO_Port GPIOF
+#define MCU_2_RPLENS_TXD_Pin GPIO_PIN_7
+#define MCU_2_RPLENS_TXD_GPIO_Port GPIOF
 #define MCU_LED_2_Pin GPIO_PIN_1
 #define MCU_LED_2_GPIO_Port GPIOC
 #define MCU_2_LSR_TXD_Pin GPIO_PIN_2

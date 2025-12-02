@@ -27,10 +27,9 @@ void CLI::processRxData(uint8_t byte) {
    // uint8_t byte;
 
     // Handle transparent mode (shouldn't reach here, but just in case)
-    if (destHuart_ != nullptr) {
-        HAL_UART_Transmit(destHuart_, &byte, 1, 100);
-        return;
-    }
+	if (destEndpoint_ != nullptr) {
+	    destEndpoint_->write(&byte, 1);
+	}
 
 }
 

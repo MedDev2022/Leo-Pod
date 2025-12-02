@@ -58,6 +58,12 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define MCU_LED_1_Pin GPIO_PIN_0
+#define MCU_LED_1_GPIO_Port GPIOC
+#define MCU_2_FPGA_TXD_Pin GPIO_PIN_6
+#define MCU_2_FPGA_TXD_GPIO_Port GPIOC
+#define MCU_2_FPGA_RXD_Pin GPIO_PIN_7
+#define MCU_2_FPGA_RXD_GPIO_Port GPIOC
 
 /* USER CODE BEGIN Private defines */
 

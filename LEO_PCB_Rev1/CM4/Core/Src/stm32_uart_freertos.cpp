@@ -3,7 +3,6 @@
 #include <Host.hpp>
 #include <KX134_SPI.hpp>
 #include "main.h"
-//#include "cmsis_os.h"
 
 #include "iRay.hpp"
 #include "DayCam.hpp"
@@ -12,6 +11,7 @@
 #include "CLI.hpp"
 #include "TempSens.hpp"
 #include "TempSensorManager.hpp"
+#include "debug_print.h"
 
 
 extern "C" {
@@ -55,12 +55,12 @@ UART_HandleTypeDef* g_DebugUart = &huart4;  // default (pick whatever you want)
 
 
 //Client* clientDevice=nullptr;
-
-extern UART_HandleTypeDef huart3;  // make sure it's defined elsewhere (e.g., main.c/.cpp)
 extern UART_HandleTypeDef huart1;  // make sure it's defined elsewhere (e.g., main.c/.cpp)
-extern UART_HandleTypeDef huart8;  // make sure it's defined elsewhere (e.g., main.c/.cpp)
+extern UART_HandleTypeDef huart3;  // make sure it's defined elsewhere (e.g., main.c/.cpp)
 extern UART_HandleTypeDef huart4;  // make sure it's defined elsewhere (e.g., main.c/.cpp)
-
+extern UART_HandleTypeDef huart6;
+extern UART_HandleTypeDef huart7;
+extern UART_HandleTypeDef huart8;  // make sure it's defined elsewhere (e.g., main.c/.cpp)
 
 
 uint8_t rxByte;
@@ -120,6 +120,7 @@ static DayCam* g_dayCam = nullptr;
 static RPLens* g_rpLens = nullptr;
 static IRay* g_iRay = nullptr;
 static CLI* g_cli = nullptr;
+//static Host* g_fpga = nullptr;
 
 // Global temperature sensor manager
 static TempSensorManager* g_tempSensors = nullptr;
@@ -140,15 +141,20 @@ extern  void MyTaskFunction(void *argument)
     g_iRay = new IRay(&huart8);
     g_cli = new CLI(&huart4);
 
+
+
     printf("All UART devices created\r\n");
 
     // Initialize each device (this starts UART reception)
     g_host->Init();
-    g_lrx20A->Init();
-    g_dayCam->Init();
     g_rpLens->Init();
     g_iRay->Init();
     g_cli->Init();
+    g_lrx20A->Init();
+    g_dayCam->Init();
+
+
+
 
     printf("All UART devices initialized\r\n");
 
@@ -158,6 +164,8 @@ extern  void MyTaskFunction(void *argument)
     g_host->setRPLens(g_rpLens);
     g_host->setIRay(g_iRay);
     g_host->setCli(g_cli);
+
+    SetDebugOutput(g_cli);
 
     printf("Device relationships configured\r\n");
 
@@ -200,7 +208,7 @@ extern  void MyTaskFunction(void *argument)
 
         for (uint8_t i = 0; i < 4; i++) {
             if (g_tempSensors->isConnected(i)) {
-                printf("  Temp[%u] = %.2f°C (0x%04X)\r\n",
+                printf("  Temp[%u] = %.2f degC (0x%04X)\r\n",
                        i,
                        g_tempSensors->getTemperature(i),
                        g_host->Temp[i]);
@@ -253,9 +261,22 @@ extern  void MyTaskFunction(void *argument)
     // ================================================================================
     uint32_t loopCount = 0;
 
+    uint8_t tempB[10] = {1, 2, 3, 4};
+ //   g_fpga->SendCommand(tempB, 4);
+
+
+//    while(1){
+//
+//        HAL_GPIO_TogglePin(MCU_LED_2_GPIO_Port, MCU_LED_2_Pin);
+//        osDelay(1000);  // 1 second delay
+//     //  HAL_UART_Transmit(&huart7, tempB, 3, 100);
+//    }
 
     for (;;)
     {
+
+ //       g_fpga->SendCommand(tempB, 4);
+
         HAL_GPIO_TogglePin(MCU_LED_2_GPIO_Port, MCU_LED_2_Pin);
 
         // Read all temperature sensors every loop
@@ -282,6 +303,8 @@ extern  void MyTaskFunction(void *argument)
                        g_tempSensors->getConnectedCount());
             }
         }
+
+
 
         //  Read accelerometer periodically
         if ((loopCount % 5) == 0) {

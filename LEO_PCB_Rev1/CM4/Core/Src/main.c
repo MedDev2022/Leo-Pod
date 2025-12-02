@@ -23,6 +23,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
+#include "app_entry.hpp"
 
 /* USER CODE END Includes */
 
@@ -78,6 +80,7 @@ const osThreadAttr_t myTask02_attributes = {
 
 /* Private function prototypes -----------------------------------------------*/
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_I2C2_Init(void);
 static void MX_USART2_UART_Init(void);
@@ -145,6 +148,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USART1_UART_Init();
   MX_I2C2_Init();
   MX_USART2_UART_Init();
@@ -458,7 +462,7 @@ static void MX_UART8_Init(void)
 
   /* USER CODE END UART8_Init 1 */
   huart8.Instance = UART8;
-  huart8.Init.BaudRate = 115200;
+  huart8.Init.BaudRate = 57600;
   huart8.Init.WordLength = UART_WORDLENGTH_8B;
   huart8.Init.StopBits = UART_STOPBITS_1;
   huart8.Init.Parity = UART_PARITY_NONE;
@@ -656,6 +660,39 @@ static void MX_USART3_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  if (ResMgr_Request(RESMGR_ID_DMA1, RESMGR_FLAGS_ACCESS_NORMAL | \
+                  RESMGR_FLAGS_CPU1 , 0, NULL) != RESMGR_OK)
+  {
+    /* USER CODE BEGIN RESMGR_UTILITY_DMA1 */
+    Error_Handler();
+    /* USER CODE END RESMGR_UTILITY_DMA1 */
+  }
+  if (ResMgr_Request(RESMGR_ID_DMA2, RESMGR_FLAGS_ACCESS_NORMAL | \
+                  RESMGR_FLAGS_CPU1 , 0, NULL) != RESMGR_OK)
+  {
+    /* USER CODE BEGIN RESMGR_UTILITY_DMA2 */
+    Error_Handler();
+    /* USER CODE END RESMGR_UTILITY_DMA2 */
+  }
+  if (ResMgr_Request(RESMGR_ID_DMAMUX1, RESMGR_FLAGS_ACCESS_NORMAL | \
+                  RESMGR_FLAGS_CPU1 , 0, NULL) != RESMGR_OK)
+  {
+    /* USER CODE BEGIN RESMGR_UTILITY_DMAMUX1 */
+    Error_Handler();
+    /* USER CODE END RESMGR_UTILITY_DMAMUX1 */
+  }
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -677,7 +714,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, MCU_LED_1_Pin|MCU_LED_2_Pin|SERFLSH_RST_N_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, MCU_LED_2_Pin|SERFLSH_RST_N_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, LRF_LASER_ON_N_Pin|SDI_RESET_Pin, GPIO_PIN_RESET);
@@ -697,8 +734,8 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOD, DAYCAM_TEC_ON_Pin|DAYCAM_COOL_HEAT_Pin|IR_TEC_ON_Pin|IR_COOL_HEAT_Pin
                           |COOLING_ON_Pin|HEATER_SDI_CONV_Pin|HEATER_ON_IRCAM_Pin|HEATER_MISC_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : MCU_LED_1_Pin MCU_LED_2_Pin SERFLSH_RST_N_Pin */
-  GPIO_InitStruct.Pin = MCU_LED_1_Pin|MCU_LED_2_Pin|SERFLSH_RST_N_Pin;
+  /*Configure GPIO pins : MCU_LED_2_Pin SERFLSH_RST_N_Pin */
+  GPIO_InitStruct.Pin = MCU_LED_2_Pin|SERFLSH_RST_N_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -805,8 +842,8 @@ void StartDefaultTask(void *argument)
   {
 
 
-    HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
-    osDelay(500);
+//    HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
+//    osDelay(500);
 
   }
   /* USER CODE END 5 */

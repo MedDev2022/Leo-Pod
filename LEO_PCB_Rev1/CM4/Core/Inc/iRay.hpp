@@ -8,7 +8,7 @@ public:
     explicit IRay(UART_HandleTypeDef* huart);
     void Init();
 
-
+    void setProtocol();
     // Palette and reticle commands
     void SetPalette(const std::string& palette);
     void SetReticlePosition(int x, int y);
@@ -24,6 +24,7 @@ public:
 
 private:
 
+ 	std::deque<uint8_t> messageBuffer_; 
     std::map<std::string, std::vector<uint8_t>> irPalettes;
     void InitializePalettes();
     uint8_t rxBuffer[64];  // Adjust size as necessary for your data

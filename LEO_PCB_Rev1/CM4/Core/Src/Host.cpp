@@ -7,10 +7,9 @@
 #include <cstdio>
 #include "task.h"
 #include "comm.hpp"
-
+#include "debug_print.h"
 
 extern UART_HandleTypeDef* g_DebugUart;
-
 
 
 Host::Host(UART_HandleTypeDef* huart)
@@ -50,65 +49,88 @@ void Host::timeoutTimerCallback(TimerHandle_t xTimer) {
     }
 }
 
-// Start the timeout timer
+//// Start the timeout timer
+//void Host::startTimeoutTimer() {
+//    if (timeoutTimer_ != nullptr) {
+//        // Clear ignore flag when starting a new timer
+//        ignoreTimeouts_ = false;
+//
+//        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+//        xTimerResetFromISR(timeoutTimer_, &xHigherPriorityTaskWoken);
+//        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+//    }
+//}
+
 void Host::startTimeoutTimer() {
     if (timeoutTimer_ != nullptr) {
-        // Reset and start the timer from ISR context
-        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-        xTimerResetFromISR(timeoutTimer_, &xHigherPriorityTaskWoken);
-        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+        ignoreTimeouts_ = false;
+        // Use task-context version (not FromISR)
+        xTimerReset(timeoutTimer_, 0);  // 0 = don't block if queue full
     }
 }
 
-// Stop the timeout timer
+//// Stop the timeout timer
+//void Host::stopTimeoutTimer() {
+//    if (timeoutTimer_ != nullptr) {
+//        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+//        xTimerStopFromISR(timeoutTimer_, &xHigherPriorityTaskWoken);
+//        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+//    }
+//}
+
 void Host::stopTimeoutTimer() {
     if (timeoutTimer_ != nullptr) {
-        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-        xTimerStopFromISR(timeoutTimer_, &xHigherPriorityTaskWoken);
-        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+        // Use task-context version (not FromISR)
+        xTimerStop(timeoutTimer_, 0);
     }
 }
 
-// Handle timeout event
 void Host::handleTimeout() {
-	stopTimeoutTimer();
-    printf("Host: byte receive timeout triggered! bufferIndex_=%u, transparent=%d\r\n",
-           bufferIndex_, (destHuart_ != nullptr));
+    // ALWAYS stop timer first
+    stopTimeoutTimer();
 
-    // Only handle timeout if we're actually receiving
-    if (rxState_ != RxState::Receiving || bufferIndex_ == 0) {
-        printf("Host: Exited from timer handler RxState=%u BafferIndex=%u\r\n", (rxState_ == RxState::Receiving),bufferIndex_);
+    // Check ignore flag
+    if (ignoreTimeouts_) {
+        printf("Host: Timeout ignored\r\n");
+        resetReception();
         return;
     }
 
-    // Print what we have
+    printf("Host: timeout bufferIndex_=%u rxState=%d\r\n",
+           bufferIndex_, (int)rxState_);
+
+    // Check if this is a spurious timeout
+    if (rxState_ != RxState::Receiving || bufferIndex_ == 0) {
+        printf("Host: Spurious timeout - resetting\r\n");
+        resetReception();  // ← CRITICAL: Always reset!
+        return;
+    }
+
+    // Valid timeout - we have incomplete data
     printf("  Data: ");
     for (uint8_t i = 0; i < bufferIndex_ && i < 16; i++) {
         printf("%02X ", buffer_[i]);
     }
     printf("\r\n");
 
-    // Handle based on mode
-    if (destHuart_ != nullptr) {
-        // Transparent mode - flush to destination
+    // Forward data
+    if (destEndpoint_ != nullptr) {
         printf("Host: [Transparent] Timeout - flushing to destination\r\n");
-        HAL_UART_Transmit(destHuart_, buffer_, bufferIndex_, 100);
+        destEndpoint_->write(buffer_, bufferIndex_);
     } else {
-        // Normal mode - discard
         printf("Host: [Normal] Timeout - discarding incomplete data\r\n");
     }
 
+    // ALWAYS reset at the end
     resetReception();
 }
-
     void Host::processRxData(uint8_t byte) {
         const TickType_t now = xTaskGetTickCount();
 
-//        printf("Host: RX byte=0x%02X state=%d bufIdx=%u transparent=%d\r\n",
-//        		byte, (int)rxState_, bufferIndex_, (destHuart_ != nullptr));
+
 
         // Handle transparent mode - SNIFF for commands
-        if (destHuart_ != nullptr) {
+        if (destEndpoint_  != nullptr) {
             //Always check for header even in transparent mode
             if (byte == 0xAA && rxState_ == RxState::Ready) {
                 // Potential command header detected
@@ -116,9 +138,7 @@ void Host::handleTimeout() {
                 bufferIndex_ = 1;
                 firstByteTick_ = now;
                 rxState_ = RxState::Receiving;
-
                 printf("Host: [Transparent] Header detected, timer started\r\n");
-
                 // Start byte receive timeout timer
                 startTimeoutTimer();
                 return;  // Don't forward this byte yet
@@ -128,21 +148,51 @@ void Host::handleTimeout() {
             if (rxState_ == RxState::Receiving) {
                 // Reset timer on each byte received
                 startTimeoutTimer();
-
-
                 // Accumulate byte
                 if (bufferIndex_ < sizeof(buffer_)) {
                     buffer_[bufferIndex_++] = byte;
                     printf("Host: [Transparent] Collecting byte[%u]=0x%02X\r\n",
                            bufferIndex_-1, byte);
+
                 } else {
-                    // Buffer overflow - flush everything and reset
+                    // Buffer overflow - CHANGED: use write()
                     stopTimeoutTimer();
                     printf("Host: [Transparent] Buffer overflow, flushing\r\n");
-                    HAL_UART_Transmit(destHuart_, buffer_, bufferIndex_, 100);
+                    destEndpoint_->write(buffer_, bufferIndex_);  // ← NON-BLOCKING
                     resetReception();
-                    HAL_UART_Transmit(destHuart_, &byte, 1, 100);
+                    destEndpoint_->write(&byte, 1);  // ← NON-BLOCKING
                     return;
+                }
+                //MK need to make robust for any amount of srcID and dstID
+                // ============================================
+                // EARLY VALIDATION: Check at byte 2 (SrcID)
+                // Valid Host protocol sources: HOST(0x10), LEOPOD(0x70)
+                // ============================================
+                if (bufferIndex_ == 2) {
+                    uint8_t srcID = buffer_[1];
+                    if (srcID != HOST_ID ) {
+                        // NOT a Host protocol message - forward immediately
+                        printf("Host: [Transparent] Not Host protocol (SrcID=0x%02X), forwarding\r\n", srcID);
+                        stopTimeoutTimer();
+                        destEndpoint_->write(buffer_, bufferIndex_);
+                        resetReception();
+                        return;
+                    }
+                }
+                // ============================================
+                // EARLY VALIDATION: Check at byte 3 (DstID)
+                // For commands TO Host: DstID should be HOST(0x10)
+                // ============================================
+                if (bufferIndex_ == 3) {
+                    uint8_t dstID = buffer_[2];
+                    if (dstID != LEOPOD_ID && dstID != DAYCAM_ID && dstID != IRAY_ID && dstID != RPLENS_ID && dstID != LRF_ID) {
+                        // Not destined for Host - forward immediately
+                        printf("Host: [Transparent] Not for Host (DstID=0x%02X), forwarding\r\n", dstID);
+                        stopTimeoutTimer();
+                        destEndpoint_->write(buffer_, bufferIndex_);
+                        resetReception();
+                        return;
+                    }
                 }
 
                 // Parse length when we have it
@@ -150,10 +200,10 @@ void Host::handleTimeout() {
                     expectedLength_ = 6 + buffer_[5] + 2;
 
                     if (expectedLength_ > sizeof(buffer_)) {
-                        // Invalid length - flush everything
+                        // Invalid length - CHANGED: use write()
                         stopTimeoutTimer();
                         printf("Host: [Transparent] Invalid length, flushing\r\n");
-                        HAL_UART_Transmit(destHuart_, buffer_, bufferIndex_, 100);
+                        destEndpoint_->write(buffer_, bufferIndex_);  // ← NON-BLOCKING
                         resetReception();
                         return;
                     }
@@ -168,7 +218,7 @@ void Host::handleTimeout() {
                     // Verify footer
                     if (buffer_[expectedLength_-1] != 0x55) {
                         printf("Host: [Transparent] Bad footer, flushing\r\n");
-                        HAL_UART_Transmit(destHuart_, buffer_, bufferIndex_, 100);
+                        destEndpoint_->write(buffer_, bufferIndex_);  // ← NON-BLOCKING
                         resetReception();
                         return;
                     }
@@ -176,9 +226,9 @@ void Host::handleTimeout() {
                     // Verify CRC
                     if (!verifyCRC(buffer_, expectedLength_)) {
                         printf("Host: [Transparent] CRC failed, flushing\r\n");
-                        HAL_UART_Transmit(destHuart_, buffer_, bufferIndex_, 100);
-                        resetReception();
-                        return;
+                          destEndpoint_->write(buffer_, bufferIndex_);  // ← NON-BLOCKING
+                          resetReception();
+                          return;
                     }
 
                     // VALID COMMAND - Check if it's a control command
@@ -221,23 +271,21 @@ void Host::handleTimeout() {
                             return;
                         }
                         else {
-                            // Not a control command - forward entire message to destination
+                            // Not a control command - forward - CHANGED: use write()
                             printf("Host: [Transparent] Not a control cmd (0x%02X), forwarding\r\n",
                                    rxMsg.m_opCode);
-                            HAL_UART_Transmit(destHuart_, buffer_, bufferIndex_, 100);
+                            destEndpoint_->write(buffer_, bufferIndex_);  // ← NON-BLOCKING
                             resetReception();
                             return;
                         }
                     }
                 }
 
-
-                // Still collecting - don't forward yet
-                return;
+                return;  // Still collecting
             }
 
-            // Normal transparent mode - forward immediately
-            HAL_UART_Transmit(destHuart_, &byte, 1, 100);
+            // Normal transparent forwarding - CHANGED: use write()
+            destEndpoint_->write(&byte, 1);  // ← NON-BLOCKING
             return;
         }
 
@@ -245,17 +293,16 @@ void Host::handleTimeout() {
         {
         // Normal mode (not transparent)
         switch (rxState_) {
+
+        	// Start byte receive timeout timer
+        	startTimeoutTimer();
+
             case RxState::Ready:
                 if (byte == 0xAA) {  // Header detected
                     buffer_[0] = byte;
                     bufferIndex_ = 1;
                     firstByteTick_ = now;
                     rxState_ = RxState::Receiving;
-
-                    // Start byte receive timeout timer
-                    startTimeoutTimer();
-
-
                     printf("Host: Header detected, timer started\r\n");
                 } else {
                     // Ignore bytes when waiting for header
@@ -265,7 +312,7 @@ void Host::handleTimeout() {
 
             case RxState::Receiving: {
                 // Reset timer on each byte received
-                startTimeoutTimer();
+  //              startTimeoutTimer();
 
                 // Accumulate byte
                 if (bufferIndex_ < sizeof(buffer_)) {
@@ -273,9 +320,9 @@ void Host::handleTimeout() {
                         printf("Host: Stored byte[%u]=0x%02X\r\n",
                               bufferIndex_-1, byte);
                 } else {
-                    printf("Host: Buffer overflow! bufferIndex_=%u\r\n", bufferIndex_);
                     stopTimeoutTimer();
                     resetReception();
+                    printf("Host: Buffer overflow! bufferIndex_=%u\r\n", bufferIndex_);
                     break;
                 }
 
@@ -284,10 +331,10 @@ void Host::handleTimeout() {
                     expectedLength_ = 6 + buffer_[5] + 2;  // header(1) + fields(5) + payload + CRC(1) + footer(1)
 
                     if (expectedLength_ > sizeof(buffer_)) {
-                        printf("Host: Invalid length=%u (payload=%u)\r\n",
-                               expectedLength_, buffer_[5]);
                         stopTimeoutTimer();
                         resetReception();
+                        printf("Host: Invalid length=%u (payload=%u)\r\n",
+                               expectedLength_, buffer_[5]);
                         break;
                     }
                     printf("Host: Expecting %u total bytes (payload=%u)\r\n",
@@ -340,6 +387,26 @@ void Host::handleTimeout() {
                         printf("Host: Valid message! OpCode=0x%02X, Length=%u\r\n",
                                rxMsg.m_opCode, rxMsg.m_length);
 
+                        // ========================================================================
+                        // MESSAGE ROUTING - Check destination ID
+                        // ========================================================================
+                        if (rxMsg.m_destID != LEOPOD_ID && rxMsg.m_destID != HOST_ID) {
+                            // Message is NOT for us - route it to the correct device
+                            printf("Host: Routing message to device 0x%02X\r\n", rxMsg.m_destID);
+
+                            bool forwarded = forwardToDevice(rxMsg);
+
+                            if (forwarded) {
+                                printf("Host: Message forwarded to 0x%02X\r\n", rxMsg.m_destID);
+                            } else {
+                                printf("Host: Failed to forward - unknown/uninitialized device 0x%02X\r\n",
+                                       rxMsg.m_destID);
+                            }
+
+                            resetReception();
+                            break;  // Exit switch - don't process locally
+                        }
+
                         parseAndProcess(rxMsg);
                     }
 
@@ -361,8 +428,9 @@ void Host::handleTimeout() {
 void Host::parseAndProcess(const comm::Message& msg) {
     const uint8_t* payload = msg.m_payload.data();
     const uint8_t length = msg.m_length;
+    const uint8_t opCode = msg.getOpCode();
 
-    switch (msg.m_opCode) {
+    switch (opCode) {
         case 0x01:  // Zoom In
             if (dayCam_ && payload != nullptr) {
                 dayCam_->handleZoomIn(const_cast<uint8_t*>(payload), length);
@@ -377,6 +445,46 @@ void Host::parseAndProcess(const comm::Message& msg) {
             }
             break;
 
+        case 0x21: //RP
+
+            	rpLens_->handleZoomIn();
+                printf("RP Lens Zoom In\r\n");
+
+            break;
+
+        case 0x22: //RP
+            	rpLens_->handleZoomOut();
+                printf("RP Lens Zoom Out\r\n");
+            break;
+        case 0x23: //RP zoom to position
+            if (rpLens_ && payload != nullptr) {
+            	rpLens_->SetZoomPosition((payload[1] << 8) | payload[0]);
+                printf("RP Lens to position\r\n");
+            }
+            break;
+
+
+            	rpLens_->handleZoomOut();
+                printf("RP Lens Zoom Out\r\n");
+            break;
+
+        case 0x51: //LRF Disable
+        	//lrx20A_->RangesDataCommand();
+			break;
+        case 0x52: //LRF Enable
+        	//lrx20A_->RangesDataCommand();
+			break;
+        case 0x53: //LRF Enable Fire
+        	lrx20A_->RangesDataCommand();
+			break;
+        case 0x54: //LRF Set lower limit
+        	lrx20A_->SetMinimumRangeCommand();
+			break;
+        case 0x55: //LRF Set upper limit
+        	lrx20A_->SetMaximumRangeCommand();
+			break;
+
+
         // ... Add all other cases from your original implementation
 
         case 0x70:  // Set control register
@@ -390,86 +498,65 @@ void Host::parseAndProcess(const comm::Message& msg) {
             printf("Control register set\r\n");
             break;
 
-        case 0x80:  // Enter transparent mode forward to DayCam
-            if (length == 1) {
+        case 0x80:  // Switch device
+            if (length == 1 && payload != nullptr) {
                 switch (payload[0]) {
-                    case 0x01:
-
-                    	if (dayCam_ != nullptr)
-                    	{
-                    		this->destHuart_ = dayCam_->huart_;
-                    		dayCam_->setTransparentMode(true, this->huart_);
-                            iRay_->setTransparentMode(false, nullptr);
-                            lrx20A_->setTransparentMode(false, nullptr);
-                            rpLens_->setTransparentMode(false, nullptr);
-                    		 printf("Host switched to DayCam\r\n");
-                    	}
-                    	else
-                    	{
-                    		this->destHuart_ =nullptr;
-                    		printf("Host switch to DayCam failed\r\n");
-                    	}
+                    case 0x01:  // DayCam
+                        this->destEndpoint_ = dayCam_;  // ← CHANGED
+                        dayCam_->setTransparentMode(true, this);
+                        iRay_->setTransparentMode(false, nullptr);
+                        lrx20A_->setTransparentMode(false, nullptr);
+                        rpLens_->setTransparentMode(false, nullptr);
+                        printf("Host switched to DayCam transparent mode\r\n");
                         break;
 
-                     case 0x02:
+                    case 0x02:  // IRay
+                        this->destEndpoint_ = iRay_;  // ← CHANGED
+                        dayCam_->setTransparentMode(false, nullptr);
+                        iRay_->setTransparentMode(true, this);
+                        lrx20A_->setTransparentMode(false, nullptr);
+                        rpLens_->setTransparentMode(false, nullptr);
+                        printf("Host switched to IRay transparent mode\r\n");
+                        break;
 
-                      	if (iRay_ != nullptr)
-                         	{
-                         		this->destHuart_ = iRay_->huart_;
-                         		dayCam_->setTransparentMode(false, nullptr);
-                         		iRay_->setTransparentMode(true, this->huart_);
-                                lrx20A_->setTransparentMode(false, nullptr);
-                                rpLens_->setTransparentMode(false, nullptr);
-                         		printf("Host switched to iRay\r\n");
-                         	}
-                         	else
-                         	{
-                         		this->destHuart_ =nullptr;
-                         		printf("Host switch to iRay failed\r\n");
-                         	}
-                         break;
+                    case 0x03:  // LRF
+                        this->destEndpoint_ = lrx20A_;  // ← CHANGED
+                        dayCam_->setTransparentMode(false, nullptr);
+                        iRay_->setTransparentMode(false, nullptr);
+                        lrx20A_->setTransparentMode(true, this);
+                        rpLens_->setTransparentMode(false, nullptr);
+                        printf("Host switched to LRF transparent mode\r\n");
+                        break;
 
-                     case 0x03:
-                         this->destHuart_ = (lrx20A_ != nullptr) ? lrx20A_->huart_ : nullptr;
-                         dayCam_->setTransparentMode(false, nullptr);
-                         iRay_->setTransparentMode(false, nullptr);
-                         lrx20A_->setTransparentMode(true, this->huart_);
-                         rpLens_->setTransparentMode(false, nullptr);
-                         printf("Host switched to LRF transparent mode\r\n");
-                         break;
+                    case 0x04:  // RPLens
+                        this->destEndpoint_ = rpLens_;  // ← CHANGED
+                        dayCam_->setTransparentMode(false, nullptr);
+                        iRay_->setTransparentMode(false, nullptr);
+                        lrx20A_->setTransparentMode(false, nullptr);
+                        rpLens_->setTransparentMode(true, this);
+                        printf("Host switched to RPLens transparent mode\r\n");
+                        break;
 
-                     case 0x04:
-                         this->destHuart_ = (rpLens_ != nullptr) ? rpLens_->huart_ : nullptr;
-                         dayCam_->setTransparentMode(false, nullptr);
-                         iRay_->setTransparentMode(false, nullptr);
-                         lrx20A_->setTransparentMode(false, nullptr);
-                         rpLens_->setTransparentMode(true, this->huart_);
-                         printf("Host switched to RRlens transparent mode\r\n");
-                         break;
-
-                     case 0x00:
-                         this->destHuart_ = nullptr;
-                         dayCam_->setTransparentMode(false, nullptr);
-                         iRay_->setTransparentMode(false, nullptr);
-                         lrx20A_->setTransparentMode(false, nullptr);
-                         rpLens_->setTransparentMode(false, nullptr);
-                         printf("Host exit transparent mode\r\n");
-                         break;
-                     // ... other cases
-                 }
-
-             }
-             break;
+                    case 0x00:  // Exit transparent
+                        this->destEndpoint_ = nullptr;  // ← CHANGED
+                        dayCam_->setTransparentMode(false, nullptr);
+                        iRay_->setTransparentMode(false, nullptr);
+                        lrx20A_->setTransparentMode(false, nullptr);
+                        rpLens_->setTransparentMode(false, nullptr);
+                        printf("Host exit transparent mode\r\n");
+                        break;
+                }
+            }
+            break;
 
         case 0x81:  // Exit transparent mode
             if (length == 0) {
-                this->destHuart_ = nullptr;
+                this->destEndpoint_ = nullptr;  // ← CHANGED
                 dayCam_->setTransparentMode(false, nullptr);
                 iRay_->setTransparentMode(false, nullptr);
                 lrx20A_->setTransparentMode(false, nullptr);
                 rpLens_->setTransparentMode(false, nullptr);
                 printf("Host exit transparent mode\r\n");
-                break;
             }
             break;
 
@@ -480,10 +567,12 @@ void Host::parseAndProcess(const comm::Message& msg) {
             	case 0:
             		printf("Debug forwarded to CLI\r\n");
             		g_DebugUart = cli_->huart_;
+            		SetDebugOutput(cli_);
             		break;
             	case 1:
             		printf("Debug forwarded to HOST\r\n");
             		g_DebugUart = this->huart_;
+            		SetDebugOutput(this);
             		break;
             	}
 //                this->destHuart_ = nullptr;
@@ -554,24 +643,13 @@ void Host::parseAndProcess(const comm::Message& msg) {
 
 void Host::resetReception() {
 
-	stopTimeoutTimer();
-
-    // DRAIN THE QUEUE (This is the key!)
-    uint8_t dummy;
-//    while (osMessageQueueGet(rxQueue_, &dummy, nullptr, 0) == osOK) {
-//        // Discard any leftover bytes
-//    }
-
-    // Reset index and state
     bufferIndex_ = 0;
     rxState_ = RxState::Ready;
     firstByteTick_ = 0;
-
-    // Clear expected length (important for next message)
     expectedLength_ = 0;
+    ignoreTimeouts_ = true;
+    printf("Host: resetReception\r\n");
 
-    // Clear buffer to prevent old data contamination
-    memset(buffer_, 0, sizeof(buffer_));
 }
 
 bool Host::verifyCRC(uint8_t* msg, size_t len) {
@@ -584,6 +662,80 @@ bool Host::verifyCRC(uint8_t* msg, size_t len) {
 
 
     return crc == msg[len - 2];
+}
+
+/**
+ * Forward message to the appropriate device based on destination ID
+ *
+ * @param msg The message to forward
+ * @return true if forwarded successfully, false if unknown destination
+ */
+bool Host::forwardToDevice(const comm::Message& msg) {
+    // Rebuild the complete message from parsed data
+    uint8_t buffer[256];
+
+    buffer[0] = msg.m_Header;
+    buffer[1] = msg.m_srcID;
+    buffer[2] = msg.m_destID;
+    buffer[3] = msg.m_opCode;
+    buffer[4] = msg.m_addr;
+    buffer[5] = msg.m_length;
+
+    // Copy payload
+    if (msg.m_length > 0) {
+        memcpy(buffer + 6, msg.m_payload.data(), msg.m_length);
+    }
+
+    buffer[6 + msg.m_length] = msg.m_dataCRC;
+    buffer[6 + msg.m_length + 1] = msg.m_Footer;
+
+    size_t totalSize = 8 + msg.m_length;
+
+    // Route to appropriate device based on destination ID
+    switch (msg.m_destID) {
+        case DAYCAM_ID:  // 0x21
+            if (dayCam_ != nullptr) {
+                printf("Forwarding to DayCam\r\n");
+                dayCam_->write(msg.m_payload.data(), msg.m_length);
+                return true;
+            }
+            printf("DayCam not initialized\r\n");
+            break;
+
+        case IRAY_ID:  // 0x22
+            if (iRay_ != nullptr) {
+                printf("Forwarding to IRay\r\n");
+                iRay_->write(msg.m_payload.data(), msg.m_length);
+                return true;
+            }
+            printf("IRay not initialized\r\n");
+            break;
+
+        case RPLENS_ID:  // 0x23
+            if (rpLens_ != nullptr) {
+                printf("Forwarding to RPLens\r\n");
+                rpLens_->write(msg.m_payload.data(), msg.m_length);
+                return true;
+            }
+            printf("RPLens not initialized\r\n");
+            break;
+
+        case LRF_ID:  // 0x24
+            if (lrx20A_ != nullptr) {
+                printf("Forwarding to LRF\r\n");
+                lrx20A_->write(msg.m_payload.data(), msg.m_length);
+                return true;
+            }
+            printf("LRF not initialized\r\n");
+            break;
+
+        default:
+            printf("Unknown device ID: 0x%02X\r\n", msg.m_destID);
+            return false;
+    }
+
+    // Device pointer was null
+    return false;
 }
 
 void Host::setDayCam(DayCam* cam) { dayCam_ = cam; }

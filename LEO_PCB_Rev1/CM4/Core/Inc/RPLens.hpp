@@ -10,6 +10,10 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <string>
+#include <vector>
+#include <deque>
+#include "main.h"
 
 
 
@@ -55,7 +59,7 @@ protected:
 private:
 
 
-
+    std::deque<uint8_t> messageBuffer_;
     uint8_t byte_;
 
     struct InputMessageInfo {

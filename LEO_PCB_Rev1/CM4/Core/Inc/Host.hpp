@@ -64,6 +64,7 @@ protected:
 
 private:
 
+    volatile bool ignoreTimeouts_ = false;
     void parseAndProcess(const comm::Message& msg);
     void resetReception();
     bool verifyCRC(uint8_t* msg, size_t len);
@@ -89,7 +90,7 @@ private:
 
     // FreeRTOS software timer for receive timeout
     TimerHandle_t timeoutTimer_ = nullptr;
-    static constexpr uint32_t TIMEOUT_MS = 50;
+    static constexpr uint32_t TIMEOUT_MS = 40;
 
 
 
@@ -104,6 +105,15 @@ private:
     CLI* cli_ = nullptr;
 
     int    lastMux_ = -1;
+
+    bool forwardToDevice(const comm::Message& msg);
+    static constexpr uint8_t LEOPOD_ID = 0x70;
+    static constexpr uint8_t HOST_ID = 0x10;
+    static constexpr uint8_t DAYCAM_ID = 0x21;
+    static constexpr uint8_t IRAY_ID = 0x22;
+    static constexpr uint8_t RPLENS_ID = 0x23;
+    static constexpr uint8_t LRF_ID = 0x24;
+
 };
 
 #endif // HOST_HPP
