@@ -105,7 +105,7 @@ typedef enum {
 class LRX20A : public UartEndpoint {
 public:
 
-	explicit LRX20A(UART_HandleTypeDef* huart);
+	explicit LRX20A(UART_HandleTypeDef* huart, uint32_t baudrate = 115200);
     void Init();
 	void InitLRX20A();
 

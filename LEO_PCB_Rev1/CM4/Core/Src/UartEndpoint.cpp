@@ -6,7 +6,7 @@
 
 #include "debug_print.h"
 
-static UartEndpoint* g_debugOutput = nullptr;
+
 
 
 std::map<UART_HandleTypeDef*, UartEndpoint*> UartEndpoint::instanceMap;
@@ -47,7 +47,7 @@ UartEndpoint::UartEndpoint(UART_HandleTypeDef* huart, const char* taskName)
     const osThreadAttr_t taskAttr = {
         .name = taskName_,
         .stack_size = 2048,  // Adjust as needed
-        .priority = osPriorityAboveNormal
+        .priority = osPriorityNormal
     };
     taskHandle_ = osThreadNew(TaskEntry, this, &taskAttr);
 
@@ -70,6 +70,20 @@ UartEndpoint::~UartEndpoint() {
     instanceMap.erase(huart_);
 }
 
+bool UartEndpoint::SetBaudrate(uint32_t baudrate) {
+    if (huart_ == nullptr) return false;
+
+    // Abort any pending transfers
+    HAL_UART_AbortTransmit(huart_);
+    HAL_UART_AbortReceive(huart_);
+
+    // Store new baudrate
+    huart_->Init.BaudRate = baudrate;
+
+    // Reinitialize
+    return (HAL_UART_Init(huart_) == HAL_OK);
+}
+
 bool UartEndpoint::StartReceive() {
     return HAL_UART_Receive_IT(huart_, &rxByte_, 1) == HAL_OK;
 }
@@ -79,34 +93,34 @@ uint16_t UartEndpoint::SendCommand(const uint8_t* command, size_t length) {
 }
 
 
-// ============================================================
-// NON-BLOCKING PRINTF IMPLEMENTATION
-// ============================================================
-
-int UartEndpoint::printf(const char* format, ...) {
-    char buffer[256];  // Temporary buffer for formatted string
-
-    va_list args;
-    va_start(args, format);
-    int length = vsnprintf(buffer, sizeof(buffer), format, args);
-    va_end(args);
-
-    if (length < 0) {
-        return -1;  // Formatting error
-    }
-
-    // Truncate if too long
-    if (length >= (int)sizeof(buffer)) {
-        length = sizeof(buffer) - 1;
-    }
-
-    // Write to TX queue
-//    return write((uint8_t*)buffer, length);
-
-    return  g_debugOutput->write((uint8_t*)buffer, length);
-
-
-}
+//// ============================================================
+//// NON-BLOCKING PRINTF IMPLEMENTATION
+//// ============================================================
+//
+//int UartEndpoint::printf(const char* format, ...) {
+//    char buffer[256];  // Temporary buffer for formatted string
+//
+//    va_list args;
+//    va_start(args, format);
+//    int length = vsnprintf(buffer, sizeof(buffer), format, args);
+//    va_end(args);
+//
+//    if (length < 0) {
+//        return -1;  // Formatting error
+//    }
+//
+//    // Truncate if too long
+//    if (length >= (int)sizeof(buffer)) {
+//        length = sizeof(buffer) - 1;
+//    }
+//
+//    // Write to TX queue
+//   return write((uint8_t*)buffer, length);
+//
+//   // return  g_debugOutput->write((uint8_t*)buffer, length);
+//
+//
+//}
 
 int UartEndpoint::write(const uint8_t* data, size_t length) {
     if (data == nullptr || length == 0) {

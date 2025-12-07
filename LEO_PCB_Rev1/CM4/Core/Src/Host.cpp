@@ -8,12 +8,14 @@
 #include "task.h"
 #include "comm.hpp"
 #include "debug_print.h"
+#include "timers.h"
 
 extern UART_HandleTypeDef* g_DebugUart;
 
 
-Host::Host(UART_HandleTypeDef* huart)
+Host::Host(UART_HandleTypeDef* huart, uint32_t baudrate)
     : UartEndpoint(huart, "HostTask") {
+	baudrate_ = baudrate;
 
     // Create the software timer (one-shot, byte receive timeout)
     timeoutTimer_ = xTimerCreate(
@@ -32,6 +34,12 @@ Host::Host(UART_HandleTypeDef* huart)
 
 
 void Host::Init() {
+
+    // Set baudrate before starting
+    if (huart_->Init.BaudRate != baudrate_) {
+        SetBaudrate(baudrate_);
+    }
+
     if (!StartReceive()) {
         printf("Host Start Receive failed\r\n");
     } else {
@@ -40,17 +48,30 @@ void Host::Init() {
     }
 }
 
-// Static callback function for the timer
+//// Static callback function for the timer
+//void Host::timeoutTimerCallback(TimerHandle_t xTimer) {
+//    // Get the Host object pointer from timer ID
+//    Host* host = static_cast<Host*>(pvTimerGetTimerID(xTimer));
+//    if (host != nullptr) {
+//        host->handleTimeout();
+//    }
+//}
+
 void Host::timeoutTimerCallback(TimerHandle_t xTimer) {
-    // Get the Host object pointer from timer ID
+    // debug mark: actual callback entered
+    printf("Host: timeoutTimerCallback invoked (timer daemon)\r\n");
+
     Host* host = static_cast<Host*>(pvTimerGetTimerID(xTimer));
     if (host != nullptr) {
         host->handleTimeout();
+    } else {
+        printf("Host: timeoutTimerCallback - host == nullptr\r\n");
     }
 }
 
 //// Start the timeout timer
 //void Host::startTimeoutTimer() {
+//	printf("Host: Starting timeout timer\r\n");
 //    if (timeoutTimer_ != nullptr) {
 //        // Clear ignore flag when starting a new timer
 //        ignoreTimeouts_ = false;
@@ -61,16 +82,37 @@ void Host::timeoutTimerCallback(TimerHandle_t xTimer) {
 //    }
 //}
 
+// Start the timeout timer (task-context API)
 void Host::startTimeoutTimer() {
+    printf("Host: startTimeoutTimer called\r\n");
     if (timeoutTimer_ != nullptr) {
+        // Clear ignore flag when starting a new timer
         ignoreTimeouts_ = false;
-        // Use task-context version (not FromISR)
-        xTimerReset(timeoutTimer_, 0);  // 0 = don't block if queue full
+
+        BaseType_t res = xTimerReset(timeoutTimer_, 0); // 0 = don't block waiting for queue
+        if (res != pdPASS) {
+            printf("Host: xTimerReset FAILED (res=%ld)\r\n", (long)res);
+        } else {
+            // Optional: confirm it is active
+            UBaseType_t active = xTimerIsTimerActive(timeoutTimer_);
+            printf("Host: xTimerReset -> pdPASS, timer active=%u\r\n", (unsigned)active);
+        }
+    } else {
+        printf("Host: startTimeoutTimer called but timeoutTimer_ == nullptr\r\n");
     }
 }
 
+//void Host::startTimeoutTimer() {
+//    if (timeoutTimer_ != nullptr) {
+//        ignoreTimeouts_ = false;
+//        // Use task-context version (not FromISR)
+//        xTimerReset(timeoutTimer_, 0);  // 0 = don't block if queue full
+//    }
+//}
+
 //// Stop the timeout timer
 //void Host::stopTimeoutTimer() {
+//	printf("Host: Stopping timeout timer\r\n");
 //    if (timeoutTimer_ != nullptr) {
 //        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 //        xTimerStopFromISR(timeoutTimer_, &xHigherPriorityTaskWoken);
@@ -78,15 +120,31 @@ void Host::startTimeoutTimer() {
 //    }
 //}
 
+// Stop the timeout timer (task-context API)
 void Host::stopTimeoutTimer() {
     if (timeoutTimer_ != nullptr) {
-        // Use task-context version (not FromISR)
-        xTimerStop(timeoutTimer_, 0);
+        BaseType_t res = xTimerStop(timeoutTimer_, 0);
+        if (res != pdPASS) {
+            printf("Host: xTimerStop FAILED (res=%ld)\r\n", (long)res);
+        } else {
+            UBaseType_t active = xTimerIsTimerActive(timeoutTimer_);
+            printf("Host: xTimerStop -> pdPASS, timer active=%u\r\n", (unsigned)active);
+        }
+    } else {
+        printf("Host: stopTimeoutTimer called but timeoutTimer_ == nullptr\r\n");
     }
 }
 
+//void Host::stopTimeoutTimer() {
+//    if (timeoutTimer_ != nullptr) {
+//        // Use task-context version (not FromISR)
+//        xTimerStop(timeoutTimer_, 0);
+//    }
+//}
+
 void Host::handleTimeout() {
     // ALWAYS stop timer first
+    printf("Host: Timeout occurred\r\n");
     stopTimeoutTimer();
 
     // Check ignore flag

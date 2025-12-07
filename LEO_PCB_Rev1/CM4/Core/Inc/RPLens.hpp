@@ -20,12 +20,9 @@
 class RPLens : public UartEndpoint {
 public:
 
-    explicit RPLens(UART_HandleTypeDef* huart);
-//	RPLens(USART_TypeDef * portName, int defaultBaudRate = 9600);
-    void Init();
+    explicit RPLens(UART_HandleTypeDef* huart, uint32_t baudrate = 19200);
 
-    // Connection handling
- //   bool Connect(USART_TypeDef * portName, int baudRate = 115200) ;
+    void Init();
 
     // Device commands
     void ZoomStop();

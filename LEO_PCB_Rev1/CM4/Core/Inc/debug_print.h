@@ -35,6 +35,9 @@ extern "C" {
 // Forward declaration
 class UartEndpoint;
 
+// Global debug output endpoint
+static UartEndpoint* g_debugOutput = nullptr;
+
 /**
  * @brief Set the global debug output UART endpoint
  * @param endpoint Pointer to UartEndpoint (Host, CLI, etc.) or NULL to disable

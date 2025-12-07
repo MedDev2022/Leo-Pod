@@ -5,7 +5,7 @@
 
 class CLI : public UartEndpoint {
 public:
-    explicit CLI(UART_HandleTypeDef* huart);
+    explicit CLI(UART_HandleTypeDef* huart, uint32_t baudrate = 115200);
     void Init();
 
 

@@ -10,8 +10,7 @@
 #include <cstdio>
 #include <cstring>
 
-// Global debug output endpoint
-static UartEndpoint* g_debugOutput = nullptr;
+
 
 /**
  * @brief Set the global debug output UART endpoint

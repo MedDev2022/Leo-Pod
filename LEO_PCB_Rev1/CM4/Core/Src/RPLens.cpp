@@ -8,8 +8,10 @@
 //RPLens::RPLens(USART_TypeDef * portName, int defaultBaudRate)
 //   : UartEndpoint(portName, defaultBaudRate, SERIAL_8N1) {}
 
-RPLens::RPLens(UART_HandleTypeDef* huart)
-    : UartEndpoint(huart, "RPLensTask") {}  // Remove space from task name
+RPLens::RPLens(UART_HandleTypeDef* huart, uint32_t baudrate)
+    : UartEndpoint(huart, "RPLensTask") {
+	baudrate_ = baudrate;
+}  // Remove space from task name
 
 
 
@@ -24,6 +26,10 @@ RPLens::RPLens(UART_HandleTypeDef* huart)
 void RPLens::Init()
 {
 
+    // Set baudrate before starting
+    if (huart_->Init.BaudRate != baudrate_) {
+        SetBaudrate(baudrate_);
+    }
 
     if (!StartReceive()) {
         printf("RPLEns Start Receive failed\n");
@@ -31,26 +37,6 @@ void RPLens::Init()
     else printf("RPLEns Start Receive success\n");
 }
 
-//void RPLens::onReceiveByte(uint8_t byte) {
-//
-//	std::queue<uint8_t> tempQueue{std::deque<uint8_t>(rxQueue_)};
-//
-//	printf("📥 RP Received byte: 0x%02X\n", byte);
-////    rxBuffer_[rxLength_] = byte_;
-//
-//	if (rxQueue_.back() == 0xff){
-//	    printf("rxQueue_: ");
-//	    while (!rxQueue_.empty()) {
-//	        printf("0x%02X ", rxQueue_.front());
-//	        rxQueue_.pop_front();
-//	    }
-//	    printf("\n");
-//	}
-//
-//
-//    StartReceive(&byte_, 1);  // Re-arm
-//
-//}
 
 void RPLens::processRxData(uint8_t byte) {
    // uint8_t byte;

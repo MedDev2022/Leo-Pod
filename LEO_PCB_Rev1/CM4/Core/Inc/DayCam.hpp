@@ -10,7 +10,7 @@
 
 class DayCam : public UartEndpoint {
 public:
-    explicit DayCam(UART_HandleTypeDef* huart);
+    explicit DayCam(UART_HandleTypeDef* huart, uint32_t baudrate = 9600);
     void Init();
 
     void setAddress();

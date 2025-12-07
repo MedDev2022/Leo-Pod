@@ -2,8 +2,10 @@
 #include <cstdio>
 #include <cstring>
 
-DayCam::DayCam(UART_HandleTypeDef* huart)
-    : UartEndpoint(huart, "DayCamTask") {}
+DayCam::DayCam(UART_HandleTypeDef* huart, uint32_t baudrate)
+    : UartEndpoint(huart, "DayCamTask") {
+	baudrate_ = baudrate;
+}
 
 void DayCam::Init() {
     setProtocol();

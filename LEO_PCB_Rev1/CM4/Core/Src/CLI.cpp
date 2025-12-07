@@ -10,18 +10,17 @@
 #include <queue>
 #include "cmsis_os.h"
 
-CLI::CLI(UART_HandleTypeDef* huart)
-    : UartEndpoint(huart) {}
+CLI::CLI(UART_HandleTypeDef* huart, uint32_t baudrate)
+    : UartEndpoint(huart) {
+	baudrate_ = baudrate;
+}
 
 void CLI::Init() {
-//    static uint8_t byte;
     if (!StartReceive()) {
         printf("CLI receiver init failed\n");
     }
     else printf("CLI receiver init success\n");
 }
-
-
 
 void CLI::processRxData(uint8_t byte) {
    // uint8_t byte;

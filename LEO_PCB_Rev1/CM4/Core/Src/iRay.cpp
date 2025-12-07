@@ -12,21 +12,23 @@
 #include "comm.hpp"
 
 
-IRay::IRay(UART_HandleTypeDef* huart)
-    : UartEndpoint(huart, "iRayTask") {}
+IRay::IRay(UART_HandleTypeDef* huart, uint32_t baudrate)
+    : UartEndpoint(huart, "iRayTask") {
+	baudrate_ = baudrate;
+}
 
 void IRay::Init() {
+
+    // Set baudrate before starting
+    if (huart_->Init.BaudRate != baudrate_) {
+        SetBaudrate(baudrate_);
+    }
 
     if (huart_ == nullptr || huart_->Instance == nullptr) {
         printf("IRay: UART handle invalid!\r\n");
         return;
     }
 
-    printf("IRay: UART%d state = %d\r\n",
-           (huart_->Instance == UART8) ? 8 : 0,
-           HAL_UART_GetState(huart_));
-
-    setProtocol();
     if (!StartReceive()) {
         printf("IRay receiver init failed\n");
     }

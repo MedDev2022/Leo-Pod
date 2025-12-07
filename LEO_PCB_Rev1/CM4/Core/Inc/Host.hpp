@@ -42,7 +42,7 @@ typedef union {
 
 class Host : public UartEndpoint {
 public:
-    explicit Host(UART_HandleTypeDef* huart);
+    explicit Host(UART_HandleTypeDef* huart, uint32_t baudrate);
     void Init();
 
     void setDayCam(DayCam* cam);

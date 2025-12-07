@@ -5,7 +5,7 @@
 
 class IRay : public UartEndpoint {
 public:
-    explicit IRay(UART_HandleTypeDef* huart);
+    explicit IRay(UART_HandleTypeDef* huart, uint32_t baudrate = 115200);
     void Init();
 
     void setProtocol();

@@ -16,13 +16,18 @@
 
 extern UART_HandleTypeDef* g_DebugUart;
 
-LRX20A::LRX20A(UART_HandleTypeDef* huart)
-: UartEndpoint(huart, "LRX20Task") {}
+LRX20A::LRX20A(UART_HandleTypeDef* huart, uint32_t baudrate)
+: UartEndpoint(huart, "LRX20Task") {
+	baudrate_ = baudrate;
+}
 
 
 void LRX20A::Init() {
-//    static uint8_t byte;
 
+    // Set baudrate before starting
+    if (huart_->Init.BaudRate != baudrate_) {
+        SetBaudrate(baudrate_);
+    }
 
     if (!StartReceive()) {
         printf("LRF Start Receive failed\r\n");

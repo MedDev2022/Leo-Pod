@@ -12,7 +12,7 @@
 #include "TempSens.hpp"
 #include "TempSensorManager.hpp"
 #include "debug_print.h"
-
+#include "timers.h"  // FreeRTOS software timers
 
 extern "C" {
 #include "FreeRTOS.h"
@@ -53,8 +53,7 @@ UART_HandleTypeDef* g_DebugUart = &huart4;  // default (pick whatever you want)
 //    } bits;
 //} ctrlReg_t;
 
-
-//Client* clientDevice=nullptr;
+extern I2C_HandleTypeDef hi2c2;  // make sure it's defined elsewhere (e.g., main.c/.cpp)
 extern UART_HandleTypeDef huart1;  // make sure it's defined elsewhere (e.g., main.c/.cpp)
 extern UART_HandleTypeDef huart3;  // make sure it's defined elsewhere (e.g., main.c/.cpp)
 extern UART_HandleTypeDef huart4;  // make sure it's defined elsewhere (e.g., main.c/.cpp)
@@ -64,6 +63,7 @@ extern UART_HandleTypeDef huart8;  // make sure it's defined elsewhere (e.g., ma
 
 
 uint8_t rxByte;
+
 
 
 
@@ -85,6 +85,7 @@ extern "C" void cpp_app_main(void)
     } else {
         printf("MyTaskFunction created successfully\r\n");
     }
+
 
     // You can return here — or sleep forever if this is the main task
     // osDelay(osWaitForever); // Optional if not returning
@@ -128,32 +129,32 @@ static TempSensorManager* g_tempSensors = nullptr;
 extern  void MyTaskFunction(void *argument)
 {
 
+
     printf("cpp_app_main started\r\n");
     printf("Free heap before init: %u bytes\r\n", xPortGetFreeHeapSize());
 
     // ================================================================================
     // UART DEVICE INITIALIZATION
     // ================================================================================
-    g_host = new Host(&huart1);
-    g_lrx20A = new LRX20A(&huart2);
-    g_dayCam = new DayCam(&huart3);
-    g_rpLens = new RPLens(&huart7);
-    g_iRay = new IRay(&huart8);
-    g_cli = new CLI(&huart4);
+    g_host = new Host(&huart1,115200);
+    g_host->Init();
+    SetDebugOutput(g_host);
 
-
+    g_lrx20A = new LRX20A(&huart2, 115200);
+    g_dayCam = new DayCam(&huart3, 9600);
+    g_rpLens = new RPLens(&huart7, 19200);
+    g_iRay = new IRay(&huart8, 115200);
+    g_cli = new CLI(&huart4, 115200);
 
     printf("All UART devices created\r\n");
 
     // Initialize each device (this starts UART reception)
-    g_host->Init();
+
     g_rpLens->Init();
     g_iRay->Init();
     g_cli->Init();
     g_lrx20A->Init();
     g_dayCam->Init();
-
-
 
 
     printf("All UART devices initialized\r\n");
@@ -165,16 +166,17 @@ extern  void MyTaskFunction(void *argument)
     g_host->setIRay(g_iRay);
     g_host->setCli(g_cli);
 
-    SetDebugOutput(g_cli);
 
     printf("Device relationships configured\r\n");
+
+    printf("Free heap after init: %u bytes\r\n", xPortGetFreeHeapSize());
 
     // ================================================================================
     // TEMPERATURE SENSOR INITIALIZATION (ALL 4 CHANNELS)
     // ================================================================================
     printf("\r\n=== Initializing Temperature Sensors ===\r\n");
 
-    // Scan I2C bus first (optional, for debugging)
+    // Scan I2C bus first
     i2c_scan(&hi2c2);
 
     // Create temperature sensor manager
@@ -183,11 +185,10 @@ extern  void MyTaskFunction(void *argument)
         .muxAddr7bit = 0x73,        // PCA9546A multiplexer address
         .sensorAddr7bit = 0x44,     // STS4L sensor address (same on all channels)
         .i2cTimeoutMs = 20,
-        .autoDetect = true           // Automatically detect connected sensors
+        .autoDetect = true          // Automatically detect connected sensors
     };
 
     g_tempSensors = new TempSensorManager(tempCfg);
-
 
     if (g_tempSensors != nullptr) {
         // Initialize all channels - this will detect which sensors are connected
@@ -254,7 +255,7 @@ extern  void MyTaskFunction(void *argument)
     }
 
     printf("\r\n=== System Initialization Complete ===\r\n");
-    printf("Free heap after init: %u bytes\r\n", xPortGetFreeHeapSize());
+    printf("Free heap after init2: %u bytes\r\n", xPortGetFreeHeapSize());
 
     // ================================================================================
     // MAIN LOOP
@@ -272,6 +273,13 @@ extern  void MyTaskFunction(void *argument)
 //     //  HAL_UART_Transmit(&huart7, tempB, 3, 100);
 //    }
 
+
+    static uint32_t lastFireCount = 0;
+while (1){
+
+    printf("Free heap in loop : %u bytes\r\n", xPortGetFreeHeapSize());
+    osDelay(3000);
+}
     for (;;)
     {
 

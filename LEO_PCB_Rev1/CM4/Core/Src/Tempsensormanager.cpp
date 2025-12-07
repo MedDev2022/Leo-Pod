@@ -204,7 +204,7 @@ void TempSensorManager::printStatus() const {
         if (status_[ch].isConnected) {
             printf(" Connected\r\n");
             printf("  Serial: 0x%08lX\r\n", status_[ch].serialNumber);
-            printf("  Temp:   %.2f°C (scaled: %u)\r\n",
+            printf("  Temp:   %.2f degC (scaled: %u)\r\n",
                    status_[ch].temperatureC,
                    getTemperatureScaled(ch));
             printf("  Last:   %s\r\n", status_[ch].lastReadOK ? "OK" : "FAIL");

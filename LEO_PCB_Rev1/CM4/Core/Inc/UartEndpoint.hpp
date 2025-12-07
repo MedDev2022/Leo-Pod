@@ -26,6 +26,11 @@ public:
 	virtual ~UartEndpoint();
 
     bool StartReceive();
+
+    bool SetBaudrate(uint32_t baudrate);
+
+    uint32_t GetBaudrate() const { return huart_->Init.BaudRate; }
+
     uint16_t SendCommand(const uint8_t* command, size_t length);
 
     // Pure virtual - derived classes must implement
@@ -44,7 +49,7 @@ public:
      * @param ... Variable arguments
      * @return Number of characters queued, or -1 on error
      */
-    int printf(const char* format, ...);
+//    int printf(const char* format, ...);
 
     /**
      * @brief Non-blocking write - queues raw data for transmission
@@ -101,7 +106,7 @@ protected:
     DevCommMode commMode_ = DevCommMode::Normal;
     UartEndpoint* destEndpoint_ = nullptr;
 
-
+    uint32_t baudrate_;
 
 private:
 
@@ -130,6 +135,8 @@ private:
     const char* taskName_;
 
     static std::map<UART_HandleTypeDef*, UartEndpoint*> instanceMap;
+
+
 };
 
 // ISR (C-linkage)
