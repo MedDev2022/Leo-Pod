@@ -22,7 +22,6 @@ extern "C" {
 }
 
 
-
 // tec_task.cpp
 #include "tec.hpp"
 #include "UartEndpoint.hpp"
@@ -138,7 +137,7 @@ extern  void MyTaskFunction(void *argument)
     // ================================================================================
     g_host = new Host(&huart1,115200);
     g_host->Init();
-    SetDebugOutput(g_host);
+    SetDebugOutput(g_cli);
 
     g_lrx20A = new LRX20A(&huart2, 115200);
     g_dayCam = new DayCam(&huart3, 9600);
@@ -148,16 +147,6 @@ extern  void MyTaskFunction(void *argument)
 
     printf("All UART devices created\r\n");
 
-    // Initialize each device (this starts UART reception)
-
-    g_rpLens->Init();
-    g_iRay->Init();
-    g_cli->Init();
-    g_lrx20A->Init();
-    g_dayCam->Init();
-
-
-    printf("All UART devices initialized\r\n");
 
     // Set up device relationships
     g_host->setDayCam(g_dayCam);
@@ -166,10 +155,18 @@ extern  void MyTaskFunction(void *argument)
     g_host->setIRay(g_iRay);
     g_host->setCli(g_cli);
 
-
     printf("Device relationships configured\r\n");
 
-    printf("Free heap after init: %u bytes\r\n", xPortGetFreeHeapSize());
+
+    // Initialize each device (this starts UART reception)
+    g_rpLens->Init();
+    g_iRay->Init();
+    g_cli->Init();
+    g_lrx20A->Init();
+    g_dayCam->Init();
+
+    printf("All UART devices initialized\r\n");
+
 
     // ================================================================================
     // TEMPERATURE SENSOR INITIALIZATION (ALL 4 CHANNELS)
@@ -275,13 +272,14 @@ extern  void MyTaskFunction(void *argument)
 
 
     static uint32_t lastFireCount = 0;
-while (1){
-
-    printf("Free heap in loop : %u bytes\r\n", xPortGetFreeHeapSize());
-    osDelay(3000);
-}
+//while (1){
+//
+//    printf("Free heap in loop : %u bytes\r\n", xPortGetFreeHeapSize());
+//    osDelay(3000);
+//}
     for (;;)
     {
+
 
  //       g_fpga->SendCommand(tempB, 4);
 

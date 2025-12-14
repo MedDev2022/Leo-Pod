@@ -65,6 +65,8 @@ public:
      */
     uint32_t getTxSpace() const;
 
+    uint32_t getRxSpace() const;
+
     /**
      * @brief Check if TX is busy
      * @return true if transmission in progress
@@ -116,6 +118,7 @@ private:
     // ============================================================
 
     static constexpr size_t TX_QUEUE_SIZE = 2048;  // Adjust as needed
+    static constexpr size_t RX_QUEUE_SIZE = 2048;  // Adjust as needed
 
 
     uint8_t txByte_;  // Current byte being transmitted

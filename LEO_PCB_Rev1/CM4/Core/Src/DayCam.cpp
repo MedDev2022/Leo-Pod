@@ -26,8 +26,6 @@ void DayCam::Init() {
 
 
 void DayCam::processRxData(uint8_t byte) {
-   // uint8_t byte;
-
 
     // Handle transparent mode (shouldn't reach here, but just in case)
     if (destEndpoint_ != nullptr) {

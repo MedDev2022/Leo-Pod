@@ -48,19 +48,7 @@ void Host::Init() {
     }
 }
 
-//// Static callback function for the timer
-//void Host::timeoutTimerCallback(TimerHandle_t xTimer) {
-//    // Get the Host object pointer from timer ID
-//    Host* host = static_cast<Host*>(pvTimerGetTimerID(xTimer));
-//    if (host != nullptr) {
-//        host->handleTimeout();
-//    }
-//}
-
 void Host::timeoutTimerCallback(TimerHandle_t xTimer) {
-    // debug mark: actual callback entered
-    printf("Host: timeoutTimerCallback invoked (timer daemon)\r\n");
-
     Host* host = static_cast<Host*>(pvTimerGetTimerID(xTimer));
     if (host != nullptr) {
         host->handleTimeout();
@@ -68,19 +56,6 @@ void Host::timeoutTimerCallback(TimerHandle_t xTimer) {
         printf("Host: timeoutTimerCallback - host == nullptr\r\n");
     }
 }
-
-//// Start the timeout timer
-//void Host::startTimeoutTimer() {
-//	printf("Host: Starting timeout timer\r\n");
-//    if (timeoutTimer_ != nullptr) {
-//        // Clear ignore flag when starting a new timer
-//        ignoreTimeouts_ = false;
-//
-//        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-//        xTimerResetFromISR(timeoutTimer_, &xHigherPriorityTaskWoken);
-//        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-//    }
-//}
 
 // Start the timeout timer (task-context API)
 void Host::startTimeoutTimer() {
@@ -565,6 +540,7 @@ void Host::parseAndProcess(const comm::Message& msg) {
                         iRay_->setTransparentMode(false, nullptr);
                         lrx20A_->setTransparentMode(false, nullptr);
                         rpLens_->setTransparentMode(false, nullptr);
+                        dayCam_->StartReceive();
                         printf("Host switched to DayCam transparent mode\r\n");
                         break;
 
@@ -574,6 +550,7 @@ void Host::parseAndProcess(const comm::Message& msg) {
                         iRay_->setTransparentMode(true, this);
                         lrx20A_->setTransparentMode(false, nullptr);
                         rpLens_->setTransparentMode(false, nullptr);
+                        iRay_->StartReceive();
                         printf("Host switched to IRay transparent mode\r\n");
                         break;
 
@@ -583,6 +560,7 @@ void Host::parseAndProcess(const comm::Message& msg) {
                         iRay_->setTransparentMode(false, nullptr);
                         lrx20A_->setTransparentMode(true, this);
                         rpLens_->setTransparentMode(false, nullptr);
+                        lrx20A_->StartReceive();
                         printf("Host switched to LRF transparent mode\r\n");
                         break;
 
@@ -592,6 +570,7 @@ void Host::parseAndProcess(const comm::Message& msg) {
                         iRay_->setTransparentMode(false, nullptr);
                         lrx20A_->setTransparentMode(false, nullptr);
                         rpLens_->setTransparentMode(true, this);
+                        rpLens_->StartReceive();
                         printf("Host switched to RPLens transparent mode\r\n");
                         break;
 

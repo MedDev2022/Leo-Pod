@@ -25,7 +25,7 @@ UartEndpoint::UartEndpoint(UART_HandleTypeDef* huart, const char* taskName)
     const osMessageQueueAttr_t queueAttr = {
         .name = "UartRxQueue"
     };
-    rxQueue_ = osMessageQueueNew(64, sizeof(uint8_t), &queueAttr);
+    rxQueue_ = osMessageQueueNew(RX_QUEUE_SIZE, sizeof(uint8_t), &queueAttr);
 
     if (rxQueue_ == nullptr) {
         printf("Failed to create RX queue for %s\r\n", taskName_);
@@ -172,6 +172,11 @@ uint32_t UartEndpoint::getTxSpace() const {
     return osMessageQueueGetSpace(txQueue_);
 }
 
+uint32_t UartEndpoint::getRxSpace() const {
+    if (txQueue_ == nullptr) return 0;
+    return osMessageQueueGetSpace(rxQueue_);
+}
+
 void UartEndpoint::getTxStats(uint32_t& used, uint32_t& capacity) const {
     capacity = TX_QUEUE_SIZE;
     if (txQueue_ != nullptr) {
@@ -215,7 +220,6 @@ void UartEndpoint::setTransparentMode(bool enable, UartEndpoint* destination) {
     }
 }
 
-
 // ============================================================
 // RX TASK
 // ============================================================
@@ -229,12 +233,15 @@ void UartEndpoint::TaskEntry(void* argument) {
 
 void UartEndpoint::taskLoop() {
     uint8_t byte;
-
     while (true) {
         // Block waiting for at least ONE byte
         osStatus_t status = osMessageQueueGet(rxQueue_, &byte, nullptr, osWaitForever);
 
         if (status == osOK) {
+        	// Debug: show what we received and current mode
+            printf("%s RX: 0x%02X, transparent=%d, destEndpoint=%p\r\n",
+                   taskName_, byte, (commMode_ == DevCommMode::Transparent), destEndpoint_);
+
             // Handle transparent mode
             if (commMode_ == DevCommMode::Transparent && destEndpoint_  != nullptr) {
                 destEndpoint_->write(&byte, 1);
@@ -244,9 +251,10 @@ void UartEndpoint::taskLoop() {
                 }
                 continue;
             }
-
-            // Pass byte to derived class for processing
-            processRxData(byte);
+            else {
+				// Normal mode processing
+				processRxData(byte);
+			}
         }
     }
 }
