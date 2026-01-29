@@ -141,7 +141,7 @@ private:
 protected:
 //    void onReceiveByte(uint8_t byte) override;
 //    void processIncoming() override;
-void processRxData(uint8_t byte) override;
+void processRxData(const uint8_t* data, uint16_t length) override;
 };
 
 #endif /* LRX20A_H_ */

@@ -10,6 +10,7 @@
 #include <queue>
 #include "cmsis_os.h"
 #include "comm.hpp"
+#include "host.hpp"
 
 
 IRay::IRay(UART_HandleTypeDef* huart, uint32_t baudrate)
@@ -36,6 +37,12 @@ void IRay::Init() {
     	printf("IRay receiver init success\n");
     }
 
+    uint8_t cmd1[] = {0xAA, 0x06, 0x01, 0x5D, 0x02, 0x04, 0x00, 0x14, 0xEB, 0xAA};
+    this->SendCommand(cmd1, 10);
+
+    uint8_t cmd2[] = {0xAA, 0x05, 0x01, 0x01, 0x01, 0x00, 0xB2, 0xEB, 0xAA};
+
+    this->SendCommand(cmd2, 9);
 }
 
 void IRay::SetPalette(const std::string& palette) {
@@ -50,15 +57,38 @@ void IRay::setProtocol(){
 }
 
 
-void IRay::processRxData(uint8_t byte) {
 
 
-
-    // Handle transparent mode (shouldn't reach here, but just in case)
-    if (destEndpoint_ != nullptr) {
-        destEndpoint_->write(&byte, 1);
+// ============================================================================
+// PROCESS DATA RECEIVED FROM RPLENS MOTOR CONTROLLER
+// Encrypt and send back to Host for forwarding to external controller
+// ============================================================================
+void IRay::processRxData(const uint8_t* data, uint16_t length) {
+    if (data == nullptr || length == 0) {
+        return;
     }
 
+    // Debug: Print raw received data
+    printf("IRay RX: %u bytes: ", length);
+    for (size_t i = 0; i < length; i++) {
+        printf("%02X ", data[i]);
+    }
+    printf("\r\n");
+
+    // Handle transparent mode - forward raw data
+    if (commMode_ == DevCommMode::Transparent && destEndpoint_ != nullptr) {
+        destEndpoint_->write(data, length);
+        return;
+    }
+
+    // Normal mode - send plain data to Host (Host will encrypt)
+    if (destEndpointW_ != nullptr) {
+        printf("IRay: Sending response to Host\r\n");
+        Host* host = static_cast<Host*>(destEndpointW_);
+        host->sendDeviceResponse(IRAY_ID, data, length);  // Plain data - Host encrypts
+    } else {
+        printf("IRay: No Host endpoint configured\r\n");
+    }
 }
 
 void IRay::SetReticlePosition(int x, int y) {

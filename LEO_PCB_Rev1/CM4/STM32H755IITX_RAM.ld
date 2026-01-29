@@ -45,6 +45,7 @@ MEMORY
 {
 RAM_EXEC (rx)  : ORIGIN = 0x10000000, LENGTH = 128K
 RAM (xrw)      : ORIGIN = 0x10020000, LENGTH = 160K
+RAM_D2   (xrw) : ORIGIN = 0x30000000, LENGTH = 256K
 }
 
 /* Define output sections */
@@ -160,6 +161,13 @@ SECTIONS
     . = . + _Min_Stack_Size;
     . = ALIGN(8);
   } >RAM
+  
+  .shared_ram (NOLOAD) :
+{
+  . = ALIGN(4);
+  *(.shared_ram)
+  . = ALIGN(4);
+} >RAM_D2
 
 
 

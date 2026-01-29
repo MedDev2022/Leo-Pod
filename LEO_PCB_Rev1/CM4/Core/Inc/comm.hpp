@@ -42,7 +42,7 @@ extern uint8_t MY_ID;
  */
 constexpr uint8_t HEADER_BYTE = 0xAA;
 constexpr uint8_t FOOTER_BYTE = 0x55;
-constexpr uint8_t MAX_PAYLOAD_SIZE = 256;
+constexpr uint8_t MAX_PAYLOAD_SIZE = 255;
 /**
  * Calculate a CRC for a given array, starting from an offset
  *

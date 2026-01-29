@@ -84,8 +84,9 @@ bool UartEndpoint::SetBaudrate(uint32_t baudrate) {
     return (HAL_UART_Init(huart_) == HAL_OK);
 }
 
+
 bool UartEndpoint::StartReceive() {
-    return HAL_UART_Receive_IT(huart_, &rxByte_, 1) == HAL_OK;
+    return HAL_UARTEx_ReceiveToIdle_IT(huart_, rxBuffer_, RX_BUFFER_SIZE) == HAL_OK;
 }
 
 uint16_t UartEndpoint::SendCommand(const uint8_t* command, size_t length) {
@@ -231,30 +232,33 @@ void UartEndpoint::TaskEntry(void* argument) {
     }
 }
 
+
 void UartEndpoint::taskLoop() {
-    uint8_t byte;
+    uint8_t buffer[RX_BUFFER_SIZE];
+
     while (true) {
-        // Block waiting for at least ONE byte
-        osStatus_t status = osMessageQueueGet(rxQueue_, &byte, nullptr, osWaitForever);
+        uint16_t count = 0;
+
+        // Block waiting for first byte
+        osStatus_t status = osMessageQueueGet(rxQueue_, &buffer[count], nullptr, osWaitForever);
 
         if (status == osOK) {
-        	// Debug: show what we received and current mode
-            printf("%s RX: 0x%02X, transparent=%d, destEndpoint=%p\r\n",
-                   taskName_, byte, (commMode_ == DevCommMode::Transparent), destEndpoint_);
+            count++;
+
+            // Drain all available bytes (non-blocking)
+            while (count < RX_BUFFER_SIZE &&
+                   osMessageQueueGet(rxQueue_, &buffer[count], nullptr, 0) == osOK) {
+                count++;
+            }
 
             // Handle transparent mode
-            if (commMode_ == DevCommMode::Transparent && destEndpoint_  != nullptr) {
-                destEndpoint_->write(&byte, 1);
-                // Continue to drain queue in transparent mode
-                while (osMessageQueueGet(rxQueue_, &byte, nullptr, 0) == osOK) {
-                	destEndpoint_->write(&byte, 1);
-                }
-                continue;
+            if (commMode_ == DevCommMode::Transparent && destEndpoint_ != nullptr) {
+                destEndpoint_->write(buffer, count);
             }
             else {
-				// Normal mode processing
-				processRxData(byte);
-			}
+                // Normal mode - process complete frame
+                processRxData(buffer, count);
+            }
         }
     }
 }
@@ -286,20 +290,42 @@ void UartEndpoint::DispatchTxComplete(UART_HandleTypeDef* huart) {
     }
 }
 
-void UartEndpoint::DispatchRxComplete(UART_HandleTypeDef* huart) {
+void UartEndpoint::DispatchRxEventCallback(UART_HandleTypeDef* huart, uint16_t Size) {
     auto it = instanceMap.find(huart);
     if (it != instanceMap.end()) {
         UartEndpoint* instance = it->second;
         if (instance) {
-            uint8_t byte = instance->rxByte_;
-            osMessageQueuePut(instance->rxQueue_, &byte, 0, 0);
-            HAL_UART_Receive_IT(instance->huart_, &instance->rxByte_, 1);
+            // Push all received bytes to queue
+            for (uint16_t i = 0; i < Size; i++) {
+                osMessageQueuePut(instance->rxQueue_, &instance->rxBuffer_[i], 0, 0);
+            }
+
+            // Restart reception
+            HAL_UARTEx_ReceiveToIdle_IT(instance->huart_, instance->rxBuffer_, RX_BUFFER_SIZE);
         }
     }
 }
 
-extern "C" void HAL_UART_RxCpltCallback(UART_HandleTypeDef* huart) {
-    UartEndpoint::DispatchRxComplete(huart);
+void UartEndpoint::EncryptInPlace(unsigned char* data, int length)
+{
+    if (!data || length <= 0) return;
+
+    for (int i = 0; i < length; i++)
+        data[i] = (unsigned char)(data[i] + 1);
+
+}
+
+void UartEndpoint::DecryptInPlace(unsigned char* data, int length)
+{
+    if (!data || length <= 0) return;
+
+    for (int i = 0; i < length; i++)
+        data[i] = (unsigned char)(data[i] - 1);
+}
+
+
+extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef* huart, uint16_t Size) {
+    UartEndpoint::DispatchRxEventCallback(huart, Size);
 }
 
 extern "C" void HAL_UART_TxCpltCallback(UART_HandleTypeDef* huart) {

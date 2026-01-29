@@ -179,9 +179,7 @@ void CheckMailboxRequest(void)
                 sumX += xVal;
                 sumY += yVal;
             }
-  //          HAL_UART_Transmit(&huart6, RxBuff, (FPGA_PACKET_SIZE-1), 1000);
-
-            HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
+            HAL_GPIO_TogglePin(MCU_LED_2_GPIO_Port, MCU_LED_2_Pin);
             g_mb.sumX = sumX;
             g_mb.sumY = sumY;
             g_mb.rsp_status = 0;  /* OK - have data */
@@ -302,6 +300,7 @@ Error_Handler();
   HAL_UARTEx_ReceiveToIdle_DMA(&huart6, RxBuff1, 1000);
   __HAL_DMA_DISABLE_IT(&hdma_usart6_rx, DMA_IT_HT); // Disable Half Transfer interrupt
   __HAL_UART_ENABLE_IT(&huart6, UART_IT_IDLE);
+
 
   /* USER CODE END 2 */
 
@@ -493,14 +492,14 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOC_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(MCU_LED_2_GPIO_Port, MCU_LED_2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : MCU_LED_2_Pin */
-  GPIO_InitStruct.Pin = MCU_LED_1_Pin;
+  GPIO_InitStruct.Pin = MCU_LED_2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(MCU_LED_1_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(MCU_LED_2_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -568,11 +567,9 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size)
             /* Buffer FPGA data if we don't have pending data */
             /* Don't check mailbox here - just buffer the latest valid packet */
             if (RXBuffReady == 0) {
-                HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
+                HAL_GPIO_TogglePin(MCU_LED_2_GPIO_Port, MCU_LED_2_Pin);
                 memcpy(RxBuff, RxBuff1, FPGA_PACKET_SIZE);
                 RXBuffReady = 1;
-
-
 
             }
 

@@ -1,4 +1,5 @@
 #include "DayCam.hpp"
+#include "Host.hpp"
 #include <cstdio>
 #include <cstring>
 
@@ -25,37 +26,39 @@ void DayCam::Init() {
 }
 
 
-void DayCam::processRxData(uint8_t byte) {
 
-    // Handle transparent mode (shouldn't reach here, but just in case)
-    if (destEndpoint_ != nullptr) {
-        destEndpoint_->write(&byte, 1);
+
+
+// ============================================================================
+// PROCESS DATA RECEIVED FROM RPLENS MOTOR CONTROLLER
+// Encrypt and send back to Host for forwarding to external controller
+// ============================================================================
+void DayCam::processRxData(const uint8_t* data, uint16_t length) {
+    if (data == nullptr || length == 0) {
+        return;
     }
 
-//    // Read all available bytes from queue
-//    while (osMessageQueueGet(rxQueue_, &byte, nullptr, 0) == osOK) {
-//        messageBuffer_.push_back(byte);
-//
-//        // VISCA messages end with 0xFF
-//        if (byte == 0xFF) {
-//            // Process complete message
-//            printf("DayCam RX: ");
-//            for (uint8_t b : messageBuffer_) {
-//                printf("0x%02X ", b);
-//            }
-//            printf("\r\n");
-//
-//            // TODO: Parse and handle VISCA response here
-//
-//            messageBuffer_.clear();
-//        }
-//
-//        // Prevent buffer overflow
-//        if (messageBuffer_.size() > 64) {
-//            printf("DayCam: Message buffer overflow, clearing\r\n");
-//            messageBuffer_.clear();
-//        }
-//    }
+    // Debug: Print raw received data
+    printf("DayCam RX: %u bytes: ", length);
+    for (size_t i = 0; i < length; i++) {
+        printf("%02X ", data[i]);
+    }
+    printf("\r\n");
+
+    // Handle transparent mode - forward raw data
+    if (commMode_ == DevCommMode::Transparent && destEndpoint_ != nullptr) {
+        destEndpoint_->write(data, length);
+        return;
+    }
+
+    // Normal mode - send plain data to Host (Host will encrypt)
+    if (destEndpointW_ != nullptr) {
+        printf("DayCam: Sending response to Host\r\n");
+        Host* host = static_cast<Host*>(destEndpointW_);
+        host->sendDeviceResponse(DAYCAM_ID, data, length);  // Plain data - Host encrypts
+    } else {
+        printf("DayCam: No Host endpoint configured\r\n");
+    }
 }
 
 void DayCam::setProtocol() {

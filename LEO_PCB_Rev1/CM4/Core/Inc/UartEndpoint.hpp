@@ -34,7 +34,8 @@ public:
     uint16_t SendCommand(const uint8_t* command, size_t length);
 
     // Pure virtual - derived classes must implement
-    virtual void processRxData(uint8_t byte) = 0;
+    //virtual void processRxData(uint8_t byte) = 0;
+    virtual void processRxData(const uint8_t* data, uint16_t length) = 0;
 
     // Add to UartEndpoint.hpp (public section):
     bool testBlockingTx(const uint8_t* data, size_t length);
@@ -87,8 +88,14 @@ public:
     UART_HandleTypeDef* huart_;
 
     // ISR callback dispatcher
-    static void DispatchRxComplete(UART_HandleTypeDef* huart);
+   // static void DispatchRxComplete(UART_HandleTypeDef* huart);
+    static void DispatchRxEventCallback(UART_HandleTypeDef* huart, uint16_t Size);
     static void DispatchTxComplete(UART_HandleTypeDef* huart);
+
+    static void EncryptInPlace(unsigned char* data, int length);
+    static void DecryptInPlace(unsigned char* data, int length);
+
+    UartEndpoint* destEndpointW_ = nullptr;
 
 protected:
 
@@ -107,6 +114,8 @@ protected:
     // Transparent mode settings
     DevCommMode commMode_ = DevCommMode::Normal;
     UartEndpoint* destEndpoint_ = nullptr;
+
+
 
     uint32_t baudrate_;
 
@@ -140,6 +149,12 @@ private:
     static std::map<UART_HandleTypeDef*, UartEndpoint*> instanceMap;
 
 
+    // Change single byte to buffer
+    static constexpr size_t RX_BUFFER_SIZE = 256;  // Adjust per your max message size
+    uint8_t rxBuffer_[RX_BUFFER_SIZE];
+    volatile uint16_t rxLen_ = 0;
+
+
 };
 
 // ISR (C-linkage)
@@ -147,4 +162,9 @@ extern "C" void HAL_UART_RxCpltCallback(UART_HandleTypeDef* huart);
 extern "C" void HAL_UART_TxCpltCallback(UART_HandleTypeDef* huart);
 
 
-
+static constexpr uint8_t LEOPOD_ID = 0x70;
+static constexpr uint8_t HOST_ID = 0x10;
+static constexpr uint8_t DAYCAM_ID = 0x21;
+static constexpr uint8_t IRAY_ID = 0x22;
+static constexpr uint8_t RPLENS_ID = 0x23;
+static constexpr uint8_t LRF_ID = 0x24;

@@ -57,8 +57,14 @@ public:
 
     uint16_t Imu[3] = {0};
 
+    void sendDeviceResponse(uint8_t sourceDeviceID,
+                           const uint8_t* data,
+                           uint16_t length,
+                           uint8_t opCode = 0x00,
+                           uint8_t addr = 0x00);
+
 protected:
-    void processRxData(uint8_t byte) override;
+    void processRxData(const uint8_t* data, uint16_t length) override;
 
 
 
@@ -68,7 +74,7 @@ private:
     void parseAndProcess(const comm::Message& msg);
     void resetReception();
     bool verifyCRC(uint8_t* msg, size_t len);
-
+    bool forwardPayloadToDevice(const comm::Message& msg);
     // Timer management
     void startTimeoutTimer();
     void stopTimeoutTimer();
@@ -97,6 +103,8 @@ private:
     comm::Message rxMsg;
     comm::Message txMsg;
 
+    comm::Message* ptr_txMsg;
+
     // Device pointers
     DayCam* dayCam_ = nullptr;
     LRX20A* lrx20A_ = nullptr;
@@ -107,12 +115,7 @@ private:
     int    lastMux_ = -1;
 
     bool forwardToDevice(const comm::Message& msg);
-    static constexpr uint8_t LEOPOD_ID = 0x70;
-    static constexpr uint8_t HOST_ID = 0x10;
-    static constexpr uint8_t DAYCAM_ID = 0x21;
-    static constexpr uint8_t IRAY_ID = 0x22;
-    static constexpr uint8_t RPLENS_ID = 0x23;
-    static constexpr uint8_t LRF_ID = 0x24;
+
 
 };
 

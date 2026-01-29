@@ -45,6 +45,7 @@ MEMORY
 {
 FLASH (rx)     : ORIGIN = 0x08100000, LENGTH = 1024K
 RAM (xrw)      : ORIGIN = 0x10000000, LENGTH = 288K
+RAM_D3 (xrw)   : ORIGIN = 0x30010000, LENGTH = 32K
 }
 
 /* Define output sections */
@@ -160,7 +161,17 @@ SECTIONS
     . = . + _Min_Stack_Size;
     . = ALIGN(8);
   } >RAM
+  
 
+
+.shared_ram (NOLOAD) :
+{
+  . = ALIGN(32);           /* Align to cache line boundary */
+  __shared_ram_start = .;
+  *(.shared_ram)
+  . = ALIGN(32);           /* Ensure end is also aligned */
+  __shared_ram_end = .;
+} >RAM_D3
 
 
   /* Remove information from the standard libraries */

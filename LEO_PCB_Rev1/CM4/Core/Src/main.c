@@ -159,6 +159,8 @@ int main(void)
   MX_UART4_Init();
   /* USER CODE BEGIN 2 */
 
+
+
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -714,7 +716,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, MCU_LED_2_Pin|SERFLSH_RST_N_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, MCU_LED_1_Pin|SERFLSH_RST_N_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, LRF_LASER_ON_N_Pin|SDI_RESET_Pin, GPIO_PIN_RESET);
@@ -734,8 +736,8 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOD, DAYCAM_TEC_ON_Pin|DAYCAM_COOL_HEAT_Pin|IR_TEC_ON_Pin|IR_COOL_HEAT_Pin
                           |COOLING_ON_Pin|HEATER_SDI_CONV_Pin|HEATER_ON_IRCAM_Pin|HEATER_MISC_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : MCU_LED_2_Pin SERFLSH_RST_N_Pin */
-  GPIO_InitStruct.Pin = MCU_LED_2_Pin|SERFLSH_RST_N_Pin;
+  /*Configure GPIO pins : MCU_LED_1_Pin SERFLSH_RST_N_Pin */
+  GPIO_InitStruct.Pin = MCU_LED_1_Pin|SERFLSH_RST_N_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;

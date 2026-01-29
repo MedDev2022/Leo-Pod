@@ -22,13 +22,13 @@ void CLI::Init() {
     else printf("CLI receiver init success\n");
 }
 
-void CLI::processRxData(uint8_t byte) {
+void CLI::processRxData(const uint8_t* data, uint16_t length) {
    // uint8_t byte;
 
     // Handle transparent mode (shouldn't reach here, but just in case)
-	if (destEndpoint_ != nullptr) {
-	    destEndpoint_->write(&byte, 1);
-	}
+//	if (destEndpoint_ != nullptr) {
+//	    destEndpoint_->write(&byte, 1);
+//	}
 
 }
 
