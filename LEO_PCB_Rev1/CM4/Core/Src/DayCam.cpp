@@ -9,6 +9,9 @@ DayCam::DayCam(UART_HandleTypeDef* huart, uint32_t baudrate)
 }
 
 void DayCam::Init() {
+    if (huart_->Init.BaudRate != baudrate_) {
+        SetBaudrate(baudrate_);
+    }
     setProtocol();
     osDelay(1000);
 
@@ -18,7 +21,7 @@ void DayCam::Init() {
     ifClear();
     osDelay(1000);
 
-    if (!StartReceive()) {
+    if (!ReStartReceive()) {
         printf("DayCam Start Receive failed\r\n");
     } else {
         printf("DayCam Start Receive success\r\n");
@@ -35,6 +38,7 @@ void DayCam::Init() {
 // ============================================================================
 void DayCam::processRxData(const uint8_t* data, uint16_t length) {
     if (data == nullptr || length == 0) {
+    	printf("DayCam: bad length or data\r\n");
         return;
     }
 
@@ -48,6 +52,7 @@ void DayCam::processRxData(const uint8_t* data, uint16_t length) {
     // Handle transparent mode - forward raw data
     if (commMode_ == DevCommMode::Transparent && destEndpoint_ != nullptr) {
         destEndpoint_->write(data, length);
+        printf("DayCam: Sending response in transparent mode\r\n");
         return;
     }
 

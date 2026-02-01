@@ -11,7 +11,8 @@
 #include "CLI.hpp"
 #include "TempSens.hpp"
 #include "TempSensorManager.hpp"
-#include "debug_print.h"
+#include "debug_printf.hpp"
+
 #include "timers.h"  // FreeRTOS software timers
 
 extern "C" {
@@ -27,7 +28,7 @@ extern "C" {
 //__attribute__((section(".shared_ram")))
 //volatile SharedMailbox_t g_mb = {0};
 
-#define g_mb (*(volatile SharedMailbox_t*)0x30010000)
+//#define g_mb (*(volatile SharedMailbox_t*)0x30010000)
 
 // tec_task.cpp
 #include "tec.hpp"
@@ -59,10 +60,12 @@ uint8_t rxByte;
  * AUTOFOCUS CONFIGURATION
  * ============================================================================ */
 #define AF_START_POSITION       0       /* Starting focus position */
+#define AF_STOP_POSITINON			4000	/* Position to stop at if autofocus fails */
 #define AF_STEP_INCREMENT       100      /* Focus increment per step */
-#define AF_NUM_STEPS            20      /* Number of steps (matches FOCUS_STEPS) */
+#define AF_NUM_STEPS            40      /* Number of steps (matches FOCUS_STEPS) */
 #define AF_CAPTURE_TIMEOUT_MS   1000    /* Timeout waiting for FPGA data */
 #define AF_MOTOR_SETTLE_MS      100     /* Time to wait after motor move */
+
 
 /* ============================================================================
  * AUTOFOCUS RESULTS STORAGE
@@ -154,7 +157,7 @@ int32_t FindAndMoveToBestFocus(RPLens* rpLens)
     /* Move to best position */
     if (rpLens != nullptr) {
         printf("Moving to best focus position %u...\r\n", af_results[bestStep].focusPosition);
-        rpLens->SetZoomAndFocusPosition(1000, af_results[bestStep].focusPosition);
+        rpLens->SetZoomAndFocusPosition(3200, af_results[bestStep].focusPosition);
         osDelay(AF_MOTOR_SETTLE_MS);
         printf("Autofocus complete!\r\n");
     } else {
@@ -270,7 +273,7 @@ int32_t FindBestFocusAdvanced(RPLens* rpLens)
     /* Move to best position */
     if (rpLens != nullptr) {
         printf("Moving to focus position %u...\r\n", af_results[bestStep].focusPosition);
-        rpLens->SetZoomAndFocusPosition(1000, af_results[bestStep].focusPosition);
+        rpLens->SetZoomAndFocusPosition(3200, af_results[bestStep].focusPosition);
         osDelay(AF_MOTOR_SETTLE_MS);
         printf("Autofocus complete!\r\n");
     }
@@ -287,7 +290,7 @@ static uint8_t RequestCapture(uint8_t step, uint32_t seq)
 	//g_mb.rsp_seq = 0;
 
 
-    printf("[DEBUG] RequestCapture: step=%d, seq=%lu\r\n", step, seq);
+//    printf("[DEBUG] RequestCapture: step=%d, seq=%lu\r\n", step, seq);
 
     /* Clear response flag */
     g_mb.rsp_ready = 0;
@@ -305,8 +308,8 @@ static uint8_t RequestCapture(uint8_t step, uint32_t seq)
     /* Another barrier to ensure command is visible */
     __DMB();
 
-    printf("[DEBUG] Request sent: cmd=%lu, step=%lu, seq=%lu\r\n",
-           g_mb.req_cmd, g_mb.req_step, g_mb.req_seq);
+//    printf("[DEBUG] Request sent: cmd=%lu, step=%lu, seq=%lu\r\n",
+//           g_mb.req_cmd, g_mb.req_step, g_mb.req_seq);
 
     /* Wait for response with timeout */
     uint32_t startTime = osKernelGetTickCount();
@@ -317,15 +320,15 @@ static uint8_t RequestCapture(uint8_t step, uint32_t seq)
 
         /* Print status every 200ms */
         if ((now - lastPrint) >= 200) {
-            printf("[DEBUG] Waiting... rsp_ready=%lu, rsp_seq=%lu, elapsed=%lums\r\n",
-                   g_mb.rsp_ready, g_mb.rsp_seq, (now - startTime));
+//            printf("[DEBUG] Waiting... rsp_ready=%lu, rsp_seq=%lu, elapsed=%lums\r\n",
+//                   g_mb.rsp_ready, g_mb.rsp_seq, (now - startTime));
             lastPrint = now;
         }
 
 
         /* Check timeout */
         if ((now - startTime) > AF_CAPTURE_TIMEOUT_MS) {
-            printf("  ERROR: Timeout waiting for capture (seq=%lu)\r\n", seq);
+        //    printf("  ERROR: Timeout waiting for capture (seq=%lu)\r\n", seq);
             return 0;
         }
 
@@ -335,11 +338,11 @@ static uint8_t RequestCapture(uint8_t step, uint32_t seq)
 
         /* Check if response ready with matching sequence */
         if (g_mb.rsp_ready == 1 && g_mb.rsp_seq == seq) {
-            printf("[DEBUG] Response received!\r\n");
+      //      printf("[DEBUG] Response received!\r\n");
             return 1;
         }
 
-        osDelay(10);
+  //      osDelay(10);
     }
 }
 
@@ -351,32 +354,32 @@ void RunAutofocusScan(RPLens* rpLens)
 {
     uint32_t seq = 0;
 
-    printf("\r\n");
-    printf("========================================\r\n");
-    printf("       AUTOFOCUS SCAN STARTING\r\n");
-    printf("========================================\r\n");
-    printf("  Steps: %d\r\n", AF_NUM_STEPS);
-    printf("  Start Position: %d\r\n", AF_START_POSITION);
-    printf("  Step Increment: %d\r\n", AF_STEP_INCREMENT);
-    printf("  g_mb address: 0x%08lX\r\n", (uint32_t)&g_mb);
-    printf("========================================\r\n\r\n");
+//    printf("\r\n");
+//    printf("========================================\r\n");
+//    printf("       AUTOFOCUS SCAN STARTING\r\n");
+//    printf("========================================\r\n");
+//    printf("  Steps: %d\r\n", AF_NUM_STEPS);
+//    printf("  Start Position: %d\r\n", AF_START_POSITION);
+//    printf("  Step Increment: %d\r\n", AF_STEP_INCREMENT);
+//    printf("  g_mb address: 0x%08lX\r\n", (uint32_t)&g_mb);
+//    printf("========================================\r\n\r\n");
 
     /* Clear results */
     memset(af_results, 0, sizeof(af_results));
 
     /* Move to start position */
-    printf("[DEBUG] Moving to start position %d...\r\n", AF_START_POSITION);
+//    printf("[DEBUG] Moving to start position %d...\r\n", AF_START_POSITION);
     if (rpLens != nullptr) {
-        printf("[DEBUG] Calling SetZoomAndFocusPosition...\r\n");
-        rpLens->SetZoomAndFocusPosition(1000, AF_START_POSITION);
-        printf("[DEBUG] SetZoomAndFocusPosition done\r\n");
+    //    printf("[DEBUG] Calling SetZoomAndFocusPosition...\r\n");
+        rpLens->SetZoomAndFocusPosition(3200, AF_START_POSITION);
+   //     printf("[DEBUG] SetZoomAndFocusPosition done\r\n");
     } else {
-        printf("[DEBUG] rpLens is NULL, skipping motor\r\n");
+    //    printf("[DEBUG] rpLens is NULL, skipping motor\r\n");
     }
     osDelay(500);
 
     /* Clear mailbox request */
-    printf("[DEBUG] Clearing mailbox...\r\n");
+//    printf("[DEBUG] Clearing mailbox...\r\n");
     g_mb.req_cmd = MB_IDLE;
     g_mb.req_seq = 0;
     __DMB();
@@ -386,15 +389,15 @@ void RunAutofocusScan(RPLens* rpLens)
     for (uint8_t step = 0; step < AF_NUM_STEPS; step++) {
         uint16_t currentPosition = AF_START_POSITION + (step * AF_STEP_INCREMENT);
 
-        printf("\r\n----------------------------------------\r\n");
-        printf("Step %d/%d - Focus Position: %d\r\n", step + 1, AF_NUM_STEPS, currentPosition);
-        printf("----------------------------------------\r\n");
+//        printf("\r\n----------------------------------------\r\n");
+//        printf("Step %d/%d - Focus Position: %d\r\n", step + 1, AF_NUM_STEPS, currentPosition);
+//        printf("----------------------------------------\r\n");
 
         /* Move focus (skip for step 0) */
         if (step > 0 && rpLens != nullptr) {
-            printf("  Moving focus +%d...\r\n", AF_STEP_INCREMENT);
+ //           printf("  Moving focus +%d...\r\n", AF_STEP_INCREMENT);
             //rpLens->SetFocusIncrement(AF_STEP_INCREMENT);
-            rpLens->SetZoomAndFocusPosition(1000, currentPosition);
+            rpLens->SetZoomAndFocusPosition(3200, currentPosition);
             osDelay(AF_MOTOR_SETTLE_MS);
         }
 
@@ -403,7 +406,7 @@ void RunAutofocusScan(RPLens* rpLens)
 
         /* Request capture */
         seq++;
-        printf("  Requesting capture (seq=%lu)...\r\n", seq);
+ //       printf("  Requesting capture (seq=%lu)...\r\n", seq);
 
         HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
         if (RequestCapture(step, seq)) {
@@ -416,15 +419,15 @@ void RunAutofocusScan(RPLens* rpLens)
             af_results[step].valid = 1;
 
         	PrintRawXYData();
-        	osDelay(500);
+    //    	osDelay(500);
 
-            printf("  OK - Sum X: %lld, Sum Y: %lld, Score: %lld\r\n",
-                   af_results[step].sumX,
-                   af_results[step].sumY,
-                   af_results[step].totalScore);
+//            printf("  OK - Sum X: %lld, Sum Y: %lld, Score: %lld\r\n",
+//                   af_results[step].sumX,
+//                   af_results[step].sumY,
+//                   af_results[step].totalScore);
         } else {
             af_results[step].valid = 0;
-            printf("  FAILED - No response from M7\r\n");
+   //         printf("  FAILED - No response from M7\r\n");
         }
 
         g_mb.req_cmd = MB_IDLE;
@@ -434,6 +437,105 @@ void RunAutofocusScan(RPLens* rpLens)
     PrintAutofocusResults();
 }
 
+
+
+
+/* ============================================================================
+ * RUN AUTOFOCUS SCAN
+ * ============================================================================ */
+void RunAutofocusScan_1(RPLens* rpLens)
+{
+    uint32_t seq = 0;
+
+//    printf("\r\n");
+//    printf("========================================\r\n");
+//    printf("       AUTOFOCUS SCAN STARTING\r\n");
+//    printf("========================================\r\n");
+//    printf("  Steps: %d\r\n", AF_NUM_STEPS);
+//    printf("  Start Position: %d\r\n", AF_START_POSITION);
+//    printf("  Step Increment: %d\r\n", AF_STEP_INCREMENT);
+//    printf("  g_mb address: 0x%08lX\r\n", (uint32_t)&g_mb);
+//    printf("========================================\r\n\r\n");
+
+    /* Clear results */
+    memset(af_results, 0, sizeof(af_results));
+
+    /* Move to start position */
+//    printf("[DEBUG] Moving to start position %d...\r\n", AF_START_POSITION);
+    if (rpLens != nullptr) {
+    //    printf("[DEBUG] Calling SetZoomAndFocusPosition...\r\n");
+        rpLens->SetZoomAndFocusPosition(3200, AF_START_POSITION);
+   //     printf("[DEBUG] SetZoomAndFocusPosition done\r\n");
+    } else {
+    //    printf("[DEBUG] rpLens is NULL, skipping motor\r\n");
+    }
+    osDelay(500);
+
+
+
+    /* Clear mailbox request */
+//    printf("[DEBUG] Clearing mailbox...\r\n");
+    g_mb.req_cmd = MB_IDLE;
+    g_mb.req_seq = 0;
+    __DMB();
+    osDelay(100);
+
+    rpLens->SetZoomAndFocusPosition(3200, AF_STOP_POSITINON);
+
+    /* Run scan */
+    for (uint8_t step = 0; step < AF_NUM_STEPS; step++) {
+        uint16_t currentPosition = AF_START_POSITION + (step * AF_STEP_INCREMENT);
+
+//        printf("\r\n----------------------------------------\r\n");
+//        printf("Step %d/%d - Focus Position: %d\r\n", step + 1, AF_NUM_STEPS, currentPosition);
+//        printf("----------------------------------------\r\n");
+
+//        /* Move focus (skip for step 0) */
+//        if (step > 0 && rpLens != nullptr) {
+// //           printf("  Moving focus +%d...\r\n", AF_STEP_INCREMENT);
+//            //rpLens->SetFocusIncrement(AF_STEP_INCREMENT);
+//            rpLens->SetZoomAndFocusPosition(3200, currentPosition);
+//            osDelay(AF_MOTOR_SETTLE_MS);
+//        }
+
+       // osDelay(AF_MOTOR_SETTLE_MS);
+           /* Store position */
+        af_results[step].focusPosition = currentPosition;
+
+        /* Request capture */
+        seq++;
+ //       printf("  Requesting capture (seq=%lu)...\r\n", seq);
+
+        HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
+        if (RequestCapture(step, seq)) {
+            HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
+            __DMB();
+            HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
+            af_results[step].sumX = g_mb.sumX;
+            af_results[step].sumY = g_mb.sumY;
+            af_results[step].totalScore = g_mb.sumX + g_mb.sumY;
+            af_results[step].valid = 1;
+
+        //	PrintRawXYData();
+    //    	osDelay(500);
+
+//            printf("  OK - Sum X: %lld, Sum Y: %lld, Score: %lld\r\n",
+//                   af_results[step].sumX,
+//                   af_results[step].sumY,
+//                   af_results[step].totalScore);
+        } else {
+            af_results[step].valid = 0;
+   //         printf("  FAILED - No response from M7\r\n");
+        }
+
+        g_mb.req_cmd = MB_IDLE;
+        __DMB();
+    }
+
+    PrintAutofocusResults();
+}
+
+
 /* ============================================================================
  * PRINT RESULTS SUMMARY
  * ============================================================================ */
@@ -442,13 +544,13 @@ void PrintAutofocusResults(void)
     int8_t bestStep = -1;
     int64_t bestScore = 0;
 
-    printf("\r\n========================================\r\n");
-    printf("       AUTOFOCUS RESULTS SUMMARY\r\n");
-    printf("========================================\r\n");
+    DBG_INFO("\r\n========================================\r\n");
+    DBG_INFO("       AUTOFOCUS RESULTS SUMMARY\r\n");
+    DBG_INFO("========================================\r\n");
 
     for (uint8_t step = 0; step < AF_NUM_STEPS; step++) {
         if (af_results[step].valid) {
-            printf("Step %d: Pos=%d, SumX=%lld, SumY=%lld, Score=%lld\r\n",
+        	DBG_INFO("Step %d: Pos=%d, SumX=%lld, SumY=%lld, Score=%lld\r\n",
                    step, af_results[step].focusPosition,
                    (long long)af_results[step].sumX,
                    (long long)af_results[step].sumY,
@@ -462,12 +564,12 @@ void PrintAutofocusResults(void)
                 bestStep = step;
             }
         } else {
-            printf("Step %d: FAILED\r\n", step);
+        	DBG_INFO("Step %d: FAILED\r\n", step);
         }
     }
 
     if (bestStep >= 0) {
-        printf("\r\n>>> BEST FOCUS: Step %d, Position %d <<<\r\n",
+    	DBG_INFO("\r\n>>> BEST FOCUS: Step %d, Position %d <<<\r\n",
                bestStep, af_results[bestStep].focusPosition);
     }
     printf("========================================\r\n");
@@ -475,12 +577,12 @@ void PrintAutofocusResults(void)
 
 void PrintRawXYData(void)
 {
-    printf("\r\n--- RAW X/Y DATA ---\r\n");
+	DBG_INFO("\r\n--- RAW X/Y DATA ---\r\n");
     __DMB();
     for (int i = 0; i < XY_SAMPLES; i++) {
-        printf("%d,%u,%u\r\n", i, (uint32_t)g_mb.x[i], (uint32_t)g_mb.y[i]);
+    	DBG_INFO("%d,%u,%u\r\n", i, (uint32_t)g_mb.x[i], (uint32_t)g_mb.y[i]);
     }
-    printf("--- END ---\r\n");
+    DBG_INFO("--- END ---\r\n");
 }
 
 
@@ -569,18 +671,12 @@ extern  void MyTaskFunction(void *argument)
     // ================================================================================
     g_host = new Host(&huart1,115200);
     g_host->Init();
-   // SetDebugOutput(g_cli);
-
-   // SetDebugOutput(g_host);
 
     g_lrx20A = new LRX20A(&huart2, 115200);
     g_dayCam = new DayCam(&huart3, 9600);
     g_rpLens = new RPLens(&huart7, 19200);
     g_iRay = new IRay(&huart8, 115200);
     g_cli = new CLI(&huart4, 115200);
-
-    printf("All UART devices created\r\n");
-
 
     // Set up device relationships
     g_host->setDayCam(g_dayCam);
@@ -589,21 +685,20 @@ extern  void MyTaskFunction(void *argument)
     g_host->setIRay(g_iRay);
     g_host->setCli(g_cli);
 
-    printf("Device relationships configured\r\n");
-
-
     // Initialize each device (this starts UART reception)
+    g_dayCam->Init();
     g_rpLens->Init();
     g_iRay->Init();
     g_cli->Init();
     g_lrx20A->Init();
-    g_dayCam->Init();
+
     g_host->Init();
-    SetDebugOutput(g_cli);
+    g_iRay->NUC_Shutter();
 
-   // g_rpLens->SetZoomPosition(400);
+    DebugPrintf_Init(g_host->huart_);
 
-    printf("All UART devices initialized\r\n");
+
+    DBG_INFO("All UART devices initialized\r\n");
 
     // ================== SKIP FOR AUTOFOCUS TEST ==================
     #if 0  // Temporarily disabled
@@ -725,20 +820,20 @@ printf("Free heap: %u bytes\r\n", xPortGetFreeHeapSize());
 //    osDelay(3000);
 //}
 
-//    /* Clear mailbox BEFORE releasing M4 */
-//    __DMB();  // Ensure writes complete
-//    memset((void*)&g_mb, 0, sizeof(g_mb));
-//    __DMB();  // Ensure writes complete
-//    osDelay(2000);
-//
-//    printf("\r\nM4 Ready - Starting Autofocus\r\n");
-//
-//    // ===== ADD THESE LINES =====
-//    osDelay(2000);              // Wait for M7 to be ready
-//    RunAutofocusScan(g_rpLens); // Run autofocus ONCE
-//
-//    FindAndMoveToBestFocus(g_rpLens);
-//
+    /* Clear mailbox BEFORE releasing M4 */
+    __DMB();  // Ensure writes complete
+    memset((void*)&g_mb, 0, sizeof(g_mb));
+    __DMB();  // Ensure writes complete
+    osDelay(2000);
+
+    printf("\r\nM4 Ready - Starting Autofocus\r\n");
+
+    // ===== ADD THESE LINES =====
+ //   osDelay(2000);              // Wait for M7 to be ready
+ //   RunAutofocusScan(g_rpLens); // Run autofocus ONCE
+
+  //  FindAndMoveToBestFocus(g_rpLens);
+
 //    osDelay(2000);
 //    FindBestFocusAdvanced(g_rpLens);
 //
@@ -1057,7 +1152,7 @@ int32_t FindSharpestPeak(RPLens* rpLens)
     /* Move to best position */
     if (rpLens != nullptr) {
         printf("Moving to position %u...\r\n", af_results[bestStep].focusPosition);
-        rpLens->SetZoomAndFocusPosition(1000, af_results[bestStep].focusPosition);
+        rpLens->SetZoomAndFocusPosition(3200, af_results[bestStep].focusPosition);
         osDelay(AF_MOTOR_SETTLE_MS);
         printf("Autofocus complete!\r\n");
     }

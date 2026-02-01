@@ -222,7 +222,7 @@ void Message::setPayload(const std::vector<uint8_t>& data) {
 	// Message Parsing
 	// ========================================================================
 
-	bool Message::parse(const uint8_t* buffer, size_t length) {
+	uint16_t Message::parse(const uint8_t* buffer, size_t length) {
 		// Minimum message: Header + SrcID + DestID + OpCode + Addr + Length + CRC + Footer = 8
 		if (length < MIN_MESSAGE_SIZE) {
 			return false;
@@ -267,6 +267,50 @@ void Message::setPayload(const std::vector<uint8_t>& data) {
 
 		return (m_dataCRC == calculatedCRC);
 	}
+
+//	uint16_t Message::parse(const uint8_t* data, size_t maxLength) {
+//	    // Check minimum size for header
+//	    if (maxLength < HEADER_SIZE) return 0;
+//
+//	    // Check for start byte
+//	    if (data[0] != START_BYTE) return 0;
+//
+//	    // Extract payload length from header
+//	    uint16_t payloadLen = data[HEADER_SIZE - 1];
+//
+//	    // Calculate total message size
+//	    uint16_t totalSize = HEADER_SIZE + payloadLen + CRC_SIZE + FOOTER_SIZE;
+//
+//	    // Not enough data for complete message?
+//	    if (maxLength < totalSize) return 0;
+//
+//		m_Header = data[0];
+//		m_srcID = data[1];
+//		m_destID = data[2];
+//		m_opCode = data[3];
+//		m_addr = data[4];
+//		m_length = data[5];
+//		// Extract CRC and footer
+//		m_dataCRC = data[HEADER_SIZE + m_length];
+//		m_Footer = data[HEADER_SIZE + m_length + 1];
+//
+//
+//		// Extract payload
+//		m_payload.clear();
+//		if (m_length > 0) {
+//			m_payload.assign(data + 6, data + 6 + m_length);
+//		}
+//
+//
+//		// Verify CRC
+//		uint8_t calculatedCRC = calcCRC(data + 1, 5 + m_length);
+//
+//		if (m_dataCRC == calculatedCRC)
+//			return totalSize;
+//		else
+//			return 0;
+//
+//	}
 
 	bool Message::verify(const uint8_t* buffer, size_t length) {
 		// Quick verification without parsing

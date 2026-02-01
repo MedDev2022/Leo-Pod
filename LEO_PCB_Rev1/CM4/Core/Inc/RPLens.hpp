@@ -17,6 +17,7 @@
 
 
 
+
 class RPLens : public UartEndpoint {
 public:
 
@@ -46,6 +47,10 @@ public:
     // Command processing
     void ProcessData();
 
+    // Autofocus
+    void handleAutofocus();
+
+
     // Parse responses for zoom and focus positions
     std::map<std::string, int> ParseResponse(const std::vector<uint8_t>& command);
 
@@ -53,8 +58,32 @@ protected:
 //    void onReceiveByte(uint8_t byte) override;
 //    void processIncoming() override;
     void processRxData(const uint8_t* data, uint16_t length) override;
+
 private:
 
+    // Autofocus configuration
+    static constexpr uint16_t AF_START_POSITION = 0;
+    static constexpr uint16_t AF_STOP_POSITION = 4000;
+    static constexpr uint16_t AF_STEP_INCREMENT = 50;
+    static constexpr uint8_t  AF_NUM_STEPS = 60;
+    static constexpr uint32_t AF_CAPTURE_TIMEOUT_MS = 200;
+    static constexpr uint32_t AF_MOTOR_SETTLE_MS = 25;
+
+    // Autofocus results
+    struct AF_StepResult {
+        uint16_t focusPosition;
+        uint64_t sumX;
+        uint64_t sumY;
+        uint64_t totalScore;
+        uint8_t  valid;
+    };
+
+    AF_StepResult afResults_[AF_NUM_STEPS];
+
+    // Autofocus helper functions
+    void runFocusScan();
+    void printAutofocusResults();
+    void printRawXYData();
 
     std::deque<uint8_t> messageBuffer_;
     uint8_t byte_;
@@ -80,7 +109,9 @@ private:
 
 //    void SendCommand(const std::vector<uint8_t>& command);
     void UpdateCRC(std::vector<uint8_t>& cmd);
+
 };
+
 
 
 #endif /* SRC_RPLENS_H_ */

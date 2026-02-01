@@ -3,89 +3,66 @@
 #include <cstring>
 #include "task.h"
 
-
-#include "debug_print.h"
-
-
-
-
 std::map<UART_HandleTypeDef*, UartEndpoint*> UartEndpoint::instanceMap;
 
 UartEndpoint::UartEndpoint(UART_HandleTypeDef* huart, const char* taskName)
-	: huart_(huart),
-	  taskName_(taskName),
-	  taskHandle_(nullptr),
-	  txBusy_(false),
-	  txPending_(false) {
+    : huart_(huart),
+      rxStream_(nullptr),
+      txStream_(nullptr),
+      rxTaskHandle_(nullptr),
+      txTaskHandle_(nullptr),
+      taskName_(taskName)
+{
+    instanceMap[huart] = this;
 
+    // Create stream buffers
+    rxStream_ = xStreamBufferCreate(RX_BUFFER_SIZE, 1);
+    txStream_ = xStreamBufferCreate(TX_BUFFER_SIZE, 1);
 
-	instanceMap[huart] = this;
-
-    // Create RX message queue (64 bytes deep)
-    const osMessageQueueAttr_t queueAttr = {
-        .name = "UartRxQueue"
+    // Create RX task
+    char rxName[configMAX_TASK_NAME_LEN];
+    snprintf(rxName, sizeof(rxName), "%.6s_RX", taskName);
+    const osThreadAttr_t rxAttr = {
+        .name = rxName,
+        .stack_size = 2048,
+        .priority = osPriorityAboveNormal
     };
-    rxQueue_ = osMessageQueueNew(RX_QUEUE_SIZE, sizeof(uint8_t), &queueAttr);
+    rxTaskHandle_ = osThreadNew(RxTaskEntry, this, &rxAttr);
 
-    if (rxQueue_ == nullptr) {
-        printf("Failed to create RX queue for %s\r\n", taskName_);
-        return;
-    }
-
-    // Create TX message queue (2048 bytes deep)
-    const osMessageQueueAttr_t txQueueAttr = {
-        .name = "UartTxQueue"
-    };
-    txQueue_ = osMessageQueueNew(TX_QUEUE_SIZE, sizeof(uint8_t), &txQueueAttr);
-
-    if (txQueue_ == nullptr) {
-        printf("Failed to create TX queue for %s\r\n", taskName_);
-        return;
-    }
-
-    // Create the RX task
-    const osThreadAttr_t taskAttr = {
-        .name = taskName_,
-        .stack_size = 2048,  // Adjust as needed
+    // Create TX task
+    char txName[configMAX_TASK_NAME_LEN];
+    snprintf(txName, sizeof(txName), "%.6s_TX", taskName);
+    const osThreadAttr_t txAttr = {
+        .name = txName,
+        .stack_size = 1024,
         .priority = osPriorityNormal
     };
-    taskHandle_ = osThreadNew(TaskEntry, this, &taskAttr);
-
-    if (taskHandle_ == nullptr) {
-        printf("Failed to create task for %s\r\n", taskName_);
-    }
+    txTaskHandle_ = osThreadNew(TxTaskEntry, this, &txAttr);
 }
 
-
 UartEndpoint::~UartEndpoint() {
-    if (taskHandle_) {
-        osThreadTerminate(taskHandle_);
-    }
-    if (rxQueue_) {
-        osMessageQueueDelete(rxQueue_);
-    }
-    if (txQueue_) {
-        osMessageQueueDelete(txQueue_);
-    }
+    if (rxTaskHandle_) osThreadTerminate(rxTaskHandle_);
+    if (txTaskHandle_) osThreadTerminate(txTaskHandle_);
+    if (rxStream_) vStreamBufferDelete(rxStream_);
+    if (txStream_) vStreamBufferDelete(txStream_);
     instanceMap.erase(huart_);
 }
 
 bool UartEndpoint::SetBaudrate(uint32_t baudrate) {
     if (huart_ == nullptr) return false;
-
-    // Abort any pending transfers
     HAL_UART_AbortTransmit(huart_);
     HAL_UART_AbortReceive(huart_);
-
-    // Store new baudrate
     huart_->Init.BaudRate = baudrate;
-
-    // Reinitialize
     return (HAL_UART_Init(huart_) == HAL_OK);
 }
 
-
 bool UartEndpoint::StartReceive() {
+    return HAL_UARTEx_ReceiveToIdle_IT(huart_, rxBuffer_, RX_BUFFER_SIZE) == HAL_OK;
+}
+
+bool UartEndpoint::ReStartReceive() {
+    HAL_UART_AbortTransmit(huart_);
+    HAL_UART_AbortReceive(huart_);
     return HAL_UARTEx_ReceiveToIdle_IT(huart_, rxBuffer_, RX_BUFFER_SIZE) == HAL_OK;
 }
 
@@ -93,122 +70,23 @@ uint16_t UartEndpoint::SendCommand(const uint8_t* command, size_t length) {
     return write(command, length);
 }
 
-
-//// ============================================================
-//// NON-BLOCKING PRINTF IMPLEMENTATION
-//// ============================================================
-//
-//int UartEndpoint::printf(const char* format, ...) {
-//    char buffer[256];  // Temporary buffer for formatted string
-//
-//    va_list args;
-//    va_start(args, format);
-//    int length = vsnprintf(buffer, sizeof(buffer), format, args);
-//    va_end(args);
-//
-//    if (length < 0) {
-//        return -1;  // Formatting error
-//    }
-//
-//    // Truncate if too long
-//    if (length >= (int)sizeof(buffer)) {
-//        length = sizeof(buffer) - 1;
-//    }
-//
-//    // Write to TX queue
-//   return write((uint8_t*)buffer, length);
-//
-//   // return  g_debugOutput->write((uint8_t*)buffer, length);
-//
-//
-//}
-
+// ============================================================
+// WRITE - Non-blocking, appends to TX stream
+// Can be called from any task or from another endpoint
+// ============================================================
 int UartEndpoint::write(const uint8_t* data, size_t length) {
     if (data == nullptr || length == 0) {
         return 0;
     }
 
-    size_t written = 0;
+    size_t written = xStreamBufferSend(txStream_, data, length, 0);
 
-    // Put all bytes into TX queue (non-blocking)
-    for (size_t i = 0; i < length; i++) {
-        // Use timeout=0 for non-blocking
-        if (osMessageQueuePut(txQueue_, &data[i], 0, 0) == osOK) {
-            written++;
-        } else {
-            // Queue full, stop trying
-            break;
-        }
-    }
-
-    // Kick off transmission if not already running
-    if (written > 0) {
-        // Use critical section to safely check and start TX
-        UBaseType_t savedInterruptStatus = taskENTER_CRITICAL_FROM_ISR();
-
-        if (!txBusy_) {
-            // Try to get first byte and start transmission
-            if (osMessageQueueGet(txQueue_, &txByte_, nullptr, 0) == osOK) {
-                txBusy_ = true;
-                taskEXIT_CRITICAL_FROM_ISR(savedInterruptStatus);
-
-                HAL_StatusTypeDef status = HAL_UART_Transmit_IT(huart_, &txByte_, 1);
-                if (status != HAL_OK) {
-                    // Failed to start - put byte back and clear flag
-                    txBusy_ = false;
-                }
-            } else {
-                taskEXIT_CRITICAL_FROM_ISR(savedInterruptStatus);
-            }
-        } else {
-            taskEXIT_CRITICAL_FROM_ISR(savedInterruptStatus);
-        }
+    // Wake TX task if it's waiting - cast to TaskHandle_t
+    if (written > 0 && txTaskHandle_ != nullptr) {
+        xTaskNotifyGive((TaskHandle_t)txTaskHandle_);
     }
 
     return (int)written;
-}
-
-uint32_t UartEndpoint::getTxSpace() const {
-    if (txQueue_ == nullptr) return 0;
-    return osMessageQueueGetSpace(txQueue_);
-}
-
-uint32_t UartEndpoint::getRxSpace() const {
-    if (txQueue_ == nullptr) return 0;
-    return osMessageQueueGetSpace(rxQueue_);
-}
-
-void UartEndpoint::getTxStats(uint32_t& used, uint32_t& capacity) const {
-    capacity = TX_QUEUE_SIZE;
-    if (txQueue_ != nullptr) {
-        used = osMessageQueueGetCount(txQueue_);
-    } else {
-        used = 0;
-    }
-}
-
-// ============================================================
-// TX TRANSMISSION
-// ============================================================
-void UartEndpoint::startNextTransmission() {
-
-    if (txBusy_) {
-        return;  // Already transmitting
-    }
-
-    // Try to get next byte from queue
-    if (osMessageQueueGet(txQueue_, &txByte_, nullptr, 0) == osOK) {
-        // Mark as busy before starting transmission
-        txBusy_ = true;
-
-        // Start transmission of single byte
-        HAL_StatusTypeDef status = HAL_UART_Transmit_IT(huart_, &txByte_, 1);
-
-        if (status != HAL_OK) {
-            // Failed to start transmission, mark as not busy
-            txBusy_ = false;
-        }
-    }
 }
 
 void UartEndpoint::setTransparentMode(bool enable, UartEndpoint* destination) {
@@ -222,42 +100,58 @@ void UartEndpoint::setTransparentMode(bool enable, UartEndpoint* destination) {
 }
 
 // ============================================================
-// RX TASK
+// TASK ENTRY POINTS
 // ============================================================
 
-void UartEndpoint::TaskEntry(void* argument) {
-    UartEndpoint* instance = static_cast<UartEndpoint*>(argument);
-    if (instance) {
-        instance->taskLoop();
-    }
+void UartEndpoint::RxTaskEntry(void* arg) {
+    static_cast<UartEndpoint*>(arg)->rxTaskLoop();
 }
 
+void UartEndpoint::TxTaskEntry(void* arg) {
+    static_cast<UartEndpoint*>(arg)->txTaskLoop();
+}
 
-void UartEndpoint::taskLoop() {
+// ============================================================
+// RX TASK - Processes data received by ISR
+// ============================================================
+void UartEndpoint::rxTaskLoop() {
     uint8_t buffer[RX_BUFFER_SIZE];
 
     while (true) {
-        uint16_t count = 0;
+        // Block until data available from ISR
+        size_t count = xStreamBufferReceive(rxStream_, buffer, RX_BUFFER_SIZE, portMAX_DELAY);
 
-        // Block waiting for first byte
-        osStatus_t status = osMessageQueueGet(rxQueue_, &buffer[count], nullptr, osWaitForever);
-
-        if (status == osOK) {
-            count++;
-
-            // Drain all available bytes (non-blocking)
-            while (count < RX_BUFFER_SIZE &&
-                   osMessageQueueGet(rxQueue_, &buffer[count], nullptr, 0) == osOK) {
-                count++;
-            }
-
-            // Handle transparent mode
+        if (count > 0) {
             if (commMode_ == DevCommMode::Transparent && destEndpoint_ != nullptr) {
                 destEndpoint_->write(buffer, count);
-            }
-            else {
-                // Normal mode - process complete frame
+            } else {
                 processRxData(buffer, count);
+            }
+        }
+    }
+}
+
+// ============================================================
+// TX TASK - Transmits data using interrupts (non-blocking)
+// ============================================================
+void UartEndpoint::txTaskLoop() {
+    while (true) {
+        // Wait for notification that data is available
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        // Drain the TX stream buffer
+        while (true) {
+            // Get chunk from stream buffer (non-blocking)
+            size_t count = xStreamBufferReceive(txStream_, txChunk_, TX_CHUNK_SIZE, 0);
+
+            if (count == 0) {
+                break;  // No more data
+            }
+
+            // Start interrupt-based transmission
+            if (HAL_UART_Transmit_IT(huart_, txChunk_, count) == HAL_OK) {
+                // Wait for TX complete notification from ISR
+                ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));  // 100ms timeout
             }
         }
     }
@@ -267,62 +161,55 @@ void UartEndpoint::taskLoop() {
 // ISR CALLBACKS
 // ============================================================
 
-void UartEndpoint::DispatchTxComplete(UART_HandleTypeDef* huart) {
-    auto it = instanceMap.find(huart);
-    if (it != instanceMap.end()) {
-        UartEndpoint* instance = it->second;
-        if (instance) {
-            // Clear busy flag FIRST
-            instance->txBusy_ = false;
-
-            // Immediately try next byte while still in ISR
-            // This keeps the UART fed without gaps
-            uint8_t nextByte;
-            if (osMessageQueueGet(instance->txQueue_, &nextByte, nullptr, 0) == osOK) {
-                instance->txByte_ = nextByte;
-                instance->txBusy_ = true;
-
-                if (HAL_UART_Transmit_IT(instance->huart_, &instance->txByte_, 1) != HAL_OK) {
-                    instance->txBusy_ = false;
-                }
-            }
-        }
-    }
-}
-
 void UartEndpoint::DispatchRxEventCallback(UART_HandleTypeDef* huart, uint16_t Size) {
     auto it = instanceMap.find(huart);
-    if (it != instanceMap.end()) {
-        UartEndpoint* instance = it->second;
-        if (instance) {
-            // Push all received bytes to queue
-            for (uint16_t i = 0; i < Size; i++) {
-                osMessageQueuePut(instance->rxQueue_, &instance->rxBuffer_[i], 0, 0);
-            }
+    if (it == instanceMap.end() || !it->second) return;
 
-            // Restart reception
-            HAL_UARTEx_ReceiveToIdle_IT(instance->huart_, instance->rxBuffer_, RX_BUFFER_SIZE);
-        }
-    }
+    UartEndpoint* instance = it->second;
+
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+    // Push received data to RX stream
+    xStreamBufferSendFromISR(instance->rxStream_, instance->rxBuffer_, Size, &xHigherPriorityTaskWoken);
+
+    // Restart reception
+    HAL_UARTEx_ReceiveToIdle_IT(instance->huart_, instance->rxBuffer_, RX_BUFFER_SIZE);
+
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
-void UartEndpoint::EncryptInPlace(unsigned char* data, int length)
-{
-    if (!data || length <= 0) return;
+void UartEndpoint::DispatchTxComplete(UART_HandleTypeDef* huart) {
+    auto it = instanceMap.find(huart);
+    if (it == instanceMap.end() || !it->second) return;
 
+    UartEndpoint* instance = it->second;
+
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+    // Notify TX task - cast to TaskHandle_t
+    vTaskNotifyGiveFromISR((TaskHandle_t)instance->txTaskHandle_, &xHigherPriorityTaskWoken);
+
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+}
+// ============================================================
+// ENCRYPTION HELPERS
+// ============================================================
+
+void UartEndpoint::EncryptInPlace(unsigned char* data, int length) {
+    if (!data || length <= 0) return;
     for (int i = 0; i < length; i++)
         data[i] = (unsigned char)(data[i] + 1);
-
 }
 
-void UartEndpoint::DecryptInPlace(unsigned char* data, int length)
-{
+void UartEndpoint::DecryptInPlace(unsigned char* data, int length) {
     if (!data || length <= 0) return;
-
     for (int i = 0; i < length; i++)
         data[i] = (unsigned char)(data[i] - 1);
 }
 
+// ============================================================
+// HAL CALLBACKS
+// ============================================================
 
 extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef* huart, uint16_t Size) {
     UartEndpoint::DispatchRxEventCallback(huart, Size);
@@ -330,10 +217,4 @@ extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef* huart, uint16_t S
 
 extern "C" void HAL_UART_TxCpltCallback(UART_HandleTypeDef* huart) {
     UartEndpoint::DispatchTxComplete(huart);
-}
-
-
-bool UartEndpoint::testBlockingTx(const uint8_t* data, size_t length) {
-    HAL_StatusTypeDef status = HAL_UART_Transmit(huart_, (uint8_t*)data, length, 1000);
-    return (status == HAL_OK);
 }

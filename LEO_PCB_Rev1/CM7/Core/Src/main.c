@@ -174,10 +174,12 @@ void CheckMailboxRequest(void)
                     ((uint32_t)RxBuff[offset + 7] << 24)
                 );
 
-                g_mb.x[i] = xVal;
-                g_mb.y[i] = yVal;
+               g_mb.x[i] = xVal;
+               //g_mb.y[i] = yVal;
+                g_mb.y[i] =0;
                 sumX += xVal;
-                sumY += yVal;
+                //sumY += yVal;
+                sumY += 0;
             }
   //          HAL_UART_Transmit(&huart6, RxBuff, (FPGA_PACKET_SIZE-1), 1000);
 
@@ -565,10 +567,11 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size)
 			RxBuff1[515] == 0x55)
 
         {
+
             /* Buffer FPGA data if we don't have pending data */
             /* Don't check mailbox here - just buffer the latest valid packet */
             if (RXBuffReady == 0) {
-                HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
+            	HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
                 memcpy(RxBuff, RxBuff1, FPGA_PACKET_SIZE);
                 RXBuffReady = 1;
 

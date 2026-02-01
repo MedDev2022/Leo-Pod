@@ -7,8 +7,8 @@
 #include <cstdio>
 #include "task.h"
 #include "comm.hpp"
-#include "debug_print.h"
 #include "timers.h"
+#include "debug_printf.hpp"
 
 extern UART_HandleTypeDef* g_DebugUart;
 
@@ -143,21 +143,9 @@ void Host::handleTimeout() {
 }
     void Host::processRxData(const uint8_t* data, uint16_t length) {
 
-        if (data == nullptr || length == 0) {
+        if (data == nullptr || length == 0 ) {
             return;
         }
-
-        if (length < 8) {  // Minimum: header(1) + fields(5) + CRC(1) + footer(1)
-            printf("Host: Message too short: %u bytes\r\n", length);
-            return;
-        }
-
-        // Debug: Print received data
-        printf("Host: Received %u bytes: ", length);
-        for (size_t i = 0; i < length; i++) {
-            printf("%02X ", data[i]);
-        }
-        printf("\r\n");
 
         // ========================================
         // Use comm::Message::parse() - handles:
@@ -181,13 +169,13 @@ void Host::handleTimeout() {
         // ========================================
         if (rxMsg.m_destID != LEOPOD_ID && rxMsg.m_destID != HOST_ID) {
             // Message is NOT for us - forward PAYLOAD ONLY to target device
-            printf("Host: Routing to device 0x%02X (%s)\r\n",
-                   rxMsg.m_destID, comm::getDeviceName(rxMsg.m_destID));
+//            printf("Host: Routing to device 0x%02X (%s)\r\n",
+//                   rxMsg.m_destID, comm::getDeviceName(rxMsg.m_destID));
 
             if (forwardPayloadToDevice(rxMsg)) {
-                printf("Host: Payload forwarded successfully\r\n");
+               // printf("Host: Payload forwarded successfully\r\n");
             } else {
-                printf("Host: Forward failed - unknown device 0x%02X\r\n", rxMsg.m_destID);
+               // printf("Host: Forward failed - unknown device 0x%02X\r\n", rxMsg.m_destID);
             }
             return;
         }
@@ -201,7 +189,54 @@ void Host::handleTimeout() {
     // FORWARD PAYLOAD ONLY TO DEVICE
     // Extracts payload from message and sends raw bytes to target device
     // ============================================================================
+
+
+//void Host::processRxData(const uint8_t* data, uint16_t length) {
+//    if (data == nullptr || length == 0) {
+//        return;
+//    }
+//
+//    uint16_t offset = 0;
+//
+//    while (offset < length) {
+//        // Skip until we find a header byte
+//        while (offset < length && data[offset] != comm::HEADER_BYTE) {
+//            offset++;
+//        }
+//
+//        // No more potential messages
+//        if (offset >= length) {
+//            break;
+//        }
+//
+//        // Check if enough bytes remain for minimum message
+//        size_t remaining = length - offset;
+//        if (remaining < 6 + 2) {  // header + CRC + footer minimum
+//            break;
+//        }
+//
+//        // Try to parse
+//        comm::Message rxMsg;
+//        uint16_t consumed = rxMsg.parse(data + offset, remaining);
+//
+//        if (consumed > 0) {
+//            // Valid message - process it
+//            offset += consumed;
+//
+//            if (rxMsg.m_destID != LEOPOD_ID && rxMsg.m_destID != HOST_ID) {
+//                forwardPayloadToDevice(rxMsg);
+//            } else {
+//                parseAndProcess(rxMsg);
+//            }
+//        } else {
+//            // Invalid message at this header byte - skip it and search for next
+//            offset++;
+//        }
+//    }
+//}
+
 bool Host::forwardPayloadToDevice(const comm::Message& msg) {
+
         UartEndpoint* targetDevice = nullptr;
 
         // Select target device based on destination ID
@@ -242,21 +277,21 @@ bool Host::forwardPayloadToDevice(const comm::Message& msg) {
               // Decrypt the payload before sending to device
               DecryptInPlace(decrypted, copyLen);
 
-              printf("Host: Decrypted %u bytes, sending to %s\r\n",
-                     copyLen, comm::getDeviceName(msg.m_destID));
+//              printf("Host: Decrypted %u bytes, sending to %s\r\n",
+//                     copyLen, comm::getDeviceName(msg.m_destID));
 
               // Debug: show decrypted data
-              printf("  Decrypted: ");
+              //printf("  Decrypted: ");
               for (uint16_t i = 0; i < copyLen; i++) {
-                  printf("%02X ", decrypted[i]);
+                  //printf("%02X ", decrypted[i]);
               }
-              printf("\r\n");
+              //printf("\r\n");
 
               targetDevice->SendCommand(decrypted, copyLen);
               return true;
           }
 
-          printf("Host: No payload to forward\r\n");
+        //  printf("Host: No payload to forward\r\n");
           return false;
     }
 
@@ -270,6 +305,8 @@ void Host::sendDeviceResponse(uint8_t sourceDeviceID,
                               uint16_t length,
                               uint8_t opCode,
                               uint8_t addr) {
+
+
     if (data == nullptr || length == 0) {
         printf("Host: sendDeviceResponse - no data\r\n");
         return;
@@ -375,9 +412,11 @@ void Host::parseAndProcess(const comm::Message& msg) {
 				printf("RP Lens Focus Out\r\n");
 			break;
 
-
-            	rpLens_->handleZoomOut();
-                printf("RP Lens Zoom Out\r\n");
+        case 0x26:  // RPLens Autofocus Request
+            if (rpLens_) {
+                rpLens_->handleAutofocus();
+                DBG_INFO("RP Lens Autofocus\r\n");
+            }
             break;
 
         case 0x51: //LRF Disable
@@ -476,34 +515,22 @@ void Host::parseAndProcess(const comm::Message& msg) {
             }
             break;
 
-        case 0x82:  // Debug to Host/CLI
+        case 0x82:  // Debug output routing
             if (length == 1 && payload != nullptr) {
-            	switch (payload[0])
-            	{
-            	case 0:
-            		printf("Debug forwarded to CLI\r\n");
-            		g_DebugUart = cli_->huart_;
-            		SetDebugOutput(cli_);
-            		break;
-            	case 1:
-            		printf("Debug forwarded to HOST\r\n");
-            		g_DebugUart = this->huart_;
-            		SetDebugOutput(this);
-            		break;
-            	}
-//                this->destHuart_ = nullptr;
-//                dayCam_->setTransparentMode(false, nullptr);
-//                iRay_->setTransparentMode(false, nullptr);
-//                lrx20A_->setTransparentMode(false, nullptr);
-//                rpLens_->setTransparentMode(false, nullptr);
-//                printf("Host exit transparent mode\r\n");
-//                break;
-//
-//                if (dayCam_ && payload != nullptr) {
-//                    dayCam_->handleZoomOut(const_cast<uint8_t*>(payload), length);
-//                    printf("DayCam Zoom Out\r\n");
-               }
-
+                switch (payload[0]) {
+                    case 0:
+                        DebugPrintf_SetUart(cli_->huart_);
+                        DBG_INFO("Debug to CLI");
+                        break;
+                    case 1:
+                        DebugPrintf_SetUart(this->huart_);
+                        DBG_INFO("Debug to HOST");
+                        break;
+                    case 0xFF:
+                        DebugPrintf_Enable(0);  // Disable debug output
+                        break;
+                }
+            }
             break;
 
         case 0x90: //Get temperatures
@@ -587,6 +614,7 @@ bool Host::verifyCRC(uint8_t* msg, size_t len) {
  * @return true if forwarded successfully, false if unknown destination
  */
 bool Host::forwardToDevice(const comm::Message& msg) {
+	return 0;
     // Rebuild the complete message from parsed data
     uint8_t buffer[256];
 

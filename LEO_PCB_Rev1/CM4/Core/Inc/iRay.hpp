@@ -1,7 +1,9 @@
 #pragma once
 #include "UartEndpoint.hpp"
 #include <string>
+#include <deque>
 #include <vector>
+#include <map>
 
 class IRay : public UartEndpoint {
 public:
@@ -9,7 +11,6 @@ public:
     void Init();
 
     void setProtocol();
-    // Palette and reticle commands
     void SetPalette(const std::string& palette);
     void SetReticlePosition(int x, int y);
     void GetReticlePosition();
@@ -20,18 +21,13 @@ public:
     void Reticle2();
     void Reticle3();
     void Reticle4();
-    void ReticleSetPosition();
+    void NUC_Shutter();
+
+protected:
+    void processRxData(const uint8_t* data, uint16_t length) override;
 
 private:
-
- 	std::deque<uint8_t> messageBuffer_; 
+    std::deque<uint8_t> messageBuffer_;
     std::map<std::string, std::vector<uint8_t>> irPalettes;
     void InitializePalettes();
-    uint8_t rxBuffer[64];  // Adjust size as necessary for your data
-    uint8_t byte_;
-protected:
-//    void onReceiveByte(uint8_t byte) override;
-//    void processIncoming() override;
-    // Override the task-based processing
-    void processRxData(const uint8_t* data, uint16_t length) override;
 };

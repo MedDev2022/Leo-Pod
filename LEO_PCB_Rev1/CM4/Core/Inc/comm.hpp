@@ -113,7 +113,8 @@ public:
 	void updateCRC();  // Recalculate and update CRC
 
 	// Message parsing
-	bool parse(const uint8_t* buffer, size_t length);
+
+	uint16_t parse(const uint8_t* data, size_t maxLength);
 	static bool verify(const uint8_t* buffer, size_t length);
 
 	// Expected message length based on length field
@@ -127,6 +128,12 @@ public:
 		static constexpr size_t HEADER_SIZE = 6;  // Header + SrcID + DestID + OpCode + Addr + Length
 		static constexpr size_t OVERHEAD = 8;     // Header + fields + CRC + Footer (no payload)
 		static constexpr size_t MIN_MESSAGE_SIZE = 8;  // Minimum valid message
+		static constexpr size_t CRC_SIZE = 1;
+		static constexpr size_t FOOTER_SIZE = 1;
+
+
+		static constexpr uint8_t START_BYTE = 0xAA; //Start Byte
+		static constexpr uint8_t FOOTER_BYTE = 0x55; //Stop Byte
 
 		// Public members (for compatibility)
 		uint8_t m_Header;

@@ -174,3 +174,9 @@ int _execve(char *name, char **argv, char **env)
   errno = ENOMEM;
   return -1;
 }
+
+int _getentropy(void* buffer, size_t length) {
+    (void)buffer;
+    (void)length;
+    return -1;  // No entropy source available
+}
