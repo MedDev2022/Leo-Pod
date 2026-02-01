@@ -86,8 +86,8 @@ all: main-build
 main-build: Leo_Pod_H7_CM7.elf secondary-outputs
 
 # Tool invocations
-Leo_Pod_H7_CM7.elf Leo_Pod_H7_CM7.map: $(OBJS) $(USER_OBJS) C:\SPB_Data\git\Leo-Pod\Leo_Pod_H7\CM7\STM32H755ZITX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-g++ -o "Leo_Pod_H7_CM7.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"C:\SPB_Data\git\Leo-Pod\Leo_Pod_H7\CM7\STM32H755ZITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Leo_Pod_H7_CM7.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -lstdc++ -lsupc++ -Wl,--end-group
+Leo_Pod_H7_CM7.elf Leo_Pod_H7_CM7.map: $(OBJS) $(USER_OBJS) C:\Users\krinm\git\Leo-Pod\Leo_Pod_H7\CM7\STM32H755ZITX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-g++ -o "Leo_Pod_H7_CM7.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"C:\Users\krinm\git\Leo-Pod\Leo_Pod_H7\CM7\STM32H755ZITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Leo_Pod_H7_CM7.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -lstdc++ -lsupc++ -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
