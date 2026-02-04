@@ -176,7 +176,15 @@ SECTIONS
     . = . + _Min_Stack_Size;
     . = ALIGN(8);
   } >RAM_D1
-
+  
+  .shared_ram (NOLOAD) :
+{
+  . = ALIGN(32);           /* Align to cache line boundary */
+  __shared_ram_start = .;
+  *(.shared_ram)
+  . = ALIGN(32);           /* Ensure end is also aligned */
+  __shared_ram_end = .;
+} >RAM_D2
   /* Remove information from the compiler libraries */
   /DISCARD/ :
   {

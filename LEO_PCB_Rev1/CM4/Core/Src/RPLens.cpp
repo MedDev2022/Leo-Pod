@@ -1,4 +1,3 @@
-
 #include <RPLens.hpp>
 #include "Host.hpp"
 #include <cstring>
@@ -6,37 +5,10 @@
 #include "cmsis_os.h"
 #include "comm.hpp"
 #include "debug_printf.hpp"
+#include "shared_focus_ipc.h"
 
-// Shared mailbox with M7 core
-#define SHARED_MAILBOX_ADDR  0x30010000
-#define XY_SAMPLES           64
 
-typedef struct __attribute__((aligned(32))) {
-    /* Request (M4 -> M7) */
-    volatile uint32_t req_cmd;      /* 0=idle, 1=capture */
-    volatile uint32_t req_step;     /* Current focus step 0-9 */
-    volatile uint32_t req_seq;      /* Sequence number */
-    uint32_t _pad1[5];              /* Pad to 32 bytes */
-
-    /* Response (M7 -> M4) */
-    volatile uint32_t rsp_ready;    /* 1 = data ready */
-    volatile uint32_t rsp_seq;      /* Echo of req_seq */
-    volatile uint32_t rsp_step;     /* Echo of req_step */
-    volatile uint32_t rsp_status;   /* 0 = OK, non-zero = error */
-    volatile uint64_t  sumX;         /* Sum of all X values */
-    volatile uint64_t  sumY;         /* Sum of all Y values */
-
-    /* Data (M7 -> M4) */
-    volatile uint32_t x[XY_SAMPLES]; /* 64 X values */
-    volatile uint32_t y[XY_SAMPLES]; /* 64 Y values */
-
-} SharedMailbox_t;
-
-#define g_mb  (*((volatile SharedMailbox_t*)SHARED_MAILBOX_ADDR))
-
-// Mailbox commands
-#define MB_IDLE         0
-#define MB_REQ_CAPTURE  1
+#define g_mb (*(volatile SharedMailbox_t*)SHARED_MAILBOX_ADDR)
 
 //RPLens::RPLens(USART_TypeDef * portName, int defaultBaudRate)
 //   : UartEndpoint(portName, defaultBaudRate, SERIAL_8N1) {}
@@ -81,11 +53,66 @@ void RPLens::processRxData(const uint8_t* data, uint16_t length) {
     }
 
     // Debug: Print raw received data
-    printf("RPLens RX: %u bytes: ", length);
-    for (size_t i = 0; i < length; i++) {
-        printf("%02X ", data[i]);
+    DebugPrintf_HexDump("RPLens RX", data, length);
+
+    // --- Parse position from incoming messages ---
+    // Feed bytes into message framer, extract position from complete messages.
+    // Protocol: 0x24 [cmdID] [lenLSB] [lenMSB] [data...] [CRC]
+    // Position responses (cmd 0x29, 0x0D): data = [zoomLo, zoomHi, focusLo, focusHi]
+    for (uint16_t i = 0; i < length; i++) {
+        uint8_t byte = data[i];
+
+        if (inputMessageInfo.messagePointer == -1) {
+            // Waiting for sync byte
+            if (byte == 0x24) {
+                inputMessageInfo.Reset();
+                inputMessageInfo.sync = byte;
+                inputMessageInfo.messagePointer = 0;
+            }
+            continue;
+        }
+
+        inputMessageInfo.messagePointer++;
+
+        if (inputMessageInfo.messagePointer == 1) {
+            inputMessageInfo.commandID = byte;
+        } else if (inputMessageInfo.messagePointer == 2) {
+            inputMessageInfo.dataLengthLSB = byte;
+        } else if (inputMessageInfo.messagePointer == 3) {
+            inputMessageInfo.dataLengthMSB = byte;
+            inputMessageInfo.BuildMessageContainer();
+        } else {
+            // Store data bytes + CRC
+            if (inputMessageInfo.messagePointer < (int)inputMessageInfo.messageBytes.size()) {
+                inputMessageInfo.messageBytes[inputMessageInfo.messagePointer] = byte;
+            }
+
+            // Check if message is complete (header + data + CRC)
+            int expectedLen = 4 + inputMessageInfo.dataLength + 1;  // sync+cmd+len(2) + data + crc
+            if (inputMessageInfo.messagePointer >= expectedLen - 1) {
+                // Complete message received - extract position
+                uint8_t cmdID = inputMessageInfo.commandID;
+                int dataLen = inputMessageInfo.dataLength;
+
+                // Parse position from 0x29, 0x0D, or 0x48 (continuous position report)
+                if ((cmdID == 0x29 || cmdID == 0x0D || cmdID == 0x48) && dataLen >= 4) {
+                    int16_t zoomPos  = inputMessageInfo.messageBytes[4]
+                                     | (inputMessageInfo.messageBytes[5] << 8);
+                    int16_t focusPos = inputMessageInfo.messageBytes[6]
+                                     | (inputMessageInfo.messageBytes[7] << 8);
+
+                    lastZoomPos_      = zoomPos;
+                    lastFocusPos_     = focusPos;
+                    lastPosTimestamp_ = osKernelGetTickCount();
+
+                    DBG_INFO("RPLens POS: zoom=%d focus=%d", zoomPos, focusPos);
+                }
+
+                // Reset for next message
+                inputMessageInfo.Reset();
+            }
+        }
     }
-    printf("\r\n");
 
     // Handle transparent mode - forward raw data
     if (commMode_ == DevCommMode::Transparent && destEndpoint_ != nullptr) {
@@ -237,8 +264,8 @@ void RPLens::SetZoomAndFocusPosition(int zoomPos, int focusPos)
 }
 
 
-void RPLens::SetFastFocusPosition(int focusPos)
-        {
+void RPLens::SetFastFocusPosition(int focusPos){
+
 		std::vector<uint8_t> fastFocusPositionCMD = { 0x24, 0x48, 0x05, 0x00, 0xAA, 0xAA, 0xBB, 0xBB, 0x1E, 0xFF };
             fastFocusPositionCMD[4] = (focusPos & 0XFF);
             fastFocusPositionCMD[5] = ((focusPos & 0XFF00) >> 8);
@@ -249,8 +276,43 @@ void RPLens::SetFastFocusPosition(int focusPos)
         }
 
 
+void RPLens::SetZoomFocusSpeed(uint8_t speed) {
+    // Command 0x1F: Set Speed
+    // Byte 1: Zoom Speed (1-7)
+    // Byte 2: Focus Speed (1-7)
+    // For dual/single field lenses, set both to same value
 
+    if (speed < 1) speed = 1;
+    if (speed > 7) speed = 7;
 
+    std::vector<uint8_t> cmd = {
+        0x24,       // Sync
+        0x1F,       // Command: Set Speed
+        0x02, 0x00, // Length: 2 bytes (little endian)
+        speed,      // Zoom Speed
+        speed,      // Focus Speed
+        0x00        // CRC placeholder
+    };
+    UpdateCRC(cmd);
+    SendCommand(cmd.data(), cmd.size());
+
+}
+
+// Set report mode: 0=off, 1=on-change, 2=always
+void RPLens::SetReportMode(uint8_t mode)
+{
+    // Command 0x29: set report mode
+    // Assumed format: 0x24 0x29 0x01 0x00 [mode] [CRC]
+    std::vector<uint8_t> cmd = { 0x24, 0x29, 0x01, 0x00, mode, 0x00 };
+    UpdateCRC(cmd);
+    SendCommand(cmd.data(), cmd.size());
+    DBG_INFO("RPLens: SetReportMode(%u)", mode);
+}
+
+void RPLens::EnableContinuousReporting()
+{
+    SetReportMode(2);  // Always report
+}
 
 
 std::map<std::string, int> RPLens::ParseResponse(const std::vector<uint8_t>& command) {
@@ -326,185 +388,742 @@ void processIncoming() {
 
 }
 
-void RPLens::handleAutofocus() {
-    DBG_INFO("RPLens: Starting Autofocus");
+/* ============================================================================
+ *
+ *  AUTOFOCUS IMPLEMENTATION
+ *
+ *  3-Phase hybrid algorithm:
+ *    Phase 1 - sweepCapture:  Continuous motion sweep, ~1.2s
+ *              Finds peak region with ~140 pos resolution
+ *    Phase 2 - fineSearch:    Step-and-capture, ~1.3s
+ *              Accurate search with ~25 pos resolution
+ *    Phase 3 - goldenSearch:  Golden section optimization, ~0.6s
+ *              Converges to ~2 pos accuracy
+ *
+ *  Total: ~3 seconds for ±2 position accuracy
+ *
+ * ============================================================================ */
 
-    // Clear previous results
-    memset(afResults_, 0, sizeof(afResults_));
+/* ============================================================================
+ * LOW-LEVEL: Mailbox helpers
+ * ============================================================================ */
 
-    // Reset to starting position first
-    SetFastFocusPosition(AF_START_POSITION);
-    osDelay(AF_MOTOR_SETTLE_MS);
+uint32_t RPLens::nextSeq() {
+    return ++afSeq_;
+}
 
-    // Run the focus scan
-    runFocusScan();
+bool RPLens::requestSingleCapture(uint64_t &sumX, uint64_t &sumY) {
+    uint32_t seq = nextSeq();
 
-    // Find best position from results
-    int8_t bestStep = -1;
-    int64_t bestScore = 0;
+    g_mb.rsp_ready = 0;
+    g_mb.req_step  = 0;
+    g_mb.req_seq   = seq;
+    g_mb.req_count = 1;
+    __DMB();
+    g_mb.req_cmd = MB_REQ_CAPTURE;
+    __DMB();
 
-    for (uint8_t step = 0; step < AF_NUM_STEPS; step++) {
-        if (afResults_[step].valid) {
-            int64_t absScore = afResults_[step].totalScore;
-            if (absScore < 0) absScore = -absScore;
-
-            if (bestStep < 0 || absScore > bestScore) {
-                bestScore = absScore;
-                bestStep = step;
-            }
+    uint32_t startTime = osKernelGetTickCount();
+    while ((osKernelGetTickCount() - startTime) < AF_CAPTURE_TIMEOUT_MS) {
+        __DMB();
+        if (g_mb.rsp_ready == 1 && g_mb.rsp_seq == seq) {
+            __DMB();
+            sumX = g_mb.frames[0].sumX;
+            sumY = g_mb.frames[0].sumY;
+            g_mb.req_cmd = MB_IDLE;
+            __DMB();
+            return (g_mb.rsp_status == MB_RSP_OK);
         }
     }
 
-    // Move to best focus position
-    if (bestStep >= 0) {
-        DBG_INFO("RPLens: Best focus at step %d, position %u, score %lld",
-                 bestStep, afResults_[bestStep].focusPosition, (long long)bestScore);
-        SetFastFocusPosition(afResults_[bestStep].focusPosition);
-    } else {
-        DBG_ERR("RPLens: Autofocus failed - no valid results");
-    }
+    g_mb.req_cmd = MB_IDLE;
+    __DMB();
+    return false;
 }
 
-void RPLens::printRawXYData() {
-    DBG_INFO("=== RAW X/Y DATA ===");
-    DBG_INFO("  sumX: %lld", (long long)g_mb.sumX);
-    DBG_INFO("  sumY: %lld", (long long)g_mb.sumY);
+uint32_t RPLens::requestMultiCapture(uint32_t count, uint64_t *scoresX, uint64_t *scoresY) {
+    if (count == 0 || count > MAX_MULTI_CAPTURES) return 0;
 
-    // If mailbox has raw arrays (check your M7 struct definition)
-    // Uncomment if g_mb has x[] and y[] arrays:
+    uint32_t seq = nextSeq();
 
-    for (int i = 0; i < 64; i++) {  // Adjust size as needed
-        DBG_INFO("%d,%lu,%lu", i, (unsigned long)g_mb.x[i], (unsigned long)g_mb.y[i]);
+    g_mb.rsp_ready = 0;
+    g_mb.req_step  = 0;
+    g_mb.req_seq   = seq;
+    g_mb.req_count = count;
+    __DMB();
+    g_mb.req_cmd = MB_REQ_MULTI_CAPTURE;
+    __DMB();
+
+    uint32_t timeout = AF_CAPTURE_TIMEOUT_MS + (count * 100);
+    uint32_t startTime = osKernelGetTickCount();
+
+    while ((osKernelGetTickCount() - startTime) < timeout) {
+        __DMB();
+        if (g_mb.rsp_ready == 1 && g_mb.rsp_seq == seq) {
+            __DMB();
+            uint32_t captured = g_mb.rsp_count;
+            if (captured > count) captured = count;
+
+            for (uint32_t i = 0; i < captured; i++) {
+                scoresX[i] = g_mb.frames[i].sumX;
+                scoresY[i] = g_mb.frames[i].sumY;
+            }
+
+            g_mb.req_cmd = MB_IDLE;
+            __DMB();
+            return captured;
+        }
     }
-    DBG_INFO("====================");
 
+    g_mb.req_cmd = MB_IDLE;
+    __DMB();
+    return 0;
 }
+
+/* ============================================================================
+ * scoreAtPosition - Move to position, settle, capture N frames, return average
+ *
+ * This is the fundamental "evaluate focus quality at a known position" function.
+ * Used by fineSearch and goldenSearch.
+ * Returns 0 on failure.
+ * ============================================================================ */
+uint64_t RPLens::scoreAtPosition(uint16_t position, uint32_t numCaptures, uint32_t settleMs) {
+    SetFastFocusPosition(position);
+    osDelay(settleMs);
+
+    uint64_t total = 0;
+    uint32_t good = 0;
+
+    for (uint32_t i = 0; i < numCaptures; i++) {
+        uint64_t sx, sy;
+        if (requestSingleCapture(sx, sy)) {
+            total += sx + sy;
+            good++;
+        }
+    }
+
+    if (good == 0) return 0;
+    return total / good;
+}
+
+/* ============================================================================
+ * PHASE 1: sweepCapture - Continuous motion sweep
+ *
+ * Moves motor from startPos to endPos while capturing every available frame.
+ * Auto-detects when motor starts and stops moving.
+ * Interpolates position from timestamps.
+ *
+ * Returns: estimated best focus position, or -1 on failure
+ * Time: ~1.2s for full range (500ms settle + 700ms travel)
+ * Resolution: ~140 positions per frame at full range
+ * ============================================================================ */
+int32_t RPLens::sweepCapture(uint16_t startPos, uint16_t endPos,
+                              uint32_t settleMs, uint32_t timeoutMs) {
+
+    DBG_INFO("[SWEEP] %u -> %u", startPos, endPos);
+
+
+    SetFastFocusPosition(startPos);
+    uint32_t moveStart = osKernelGetTickCount();
+    while ((osKernelGetTickCount() - moveStart) < settleMs) {
+        int16_t pos = getLastFocusPosition();
+        if (pos >= 0 && abs(pos - (int16_t)startPos) < 30) {
+            DBG_INFO("[SWEEP] Arrived at start pos %d in %lu ms", pos,
+                     (unsigned long)(osKernelGetTickCount() - moveStart));
+            osDelay(50);  // Short settle
+            break;
+        }
+        osDelay(10);
+    }
+
+    // Baseline score at rest
+    uint64_t baseSx, baseSy;
+    if (!requestSingleCapture(baseSx, baseSy)) {
+        DBG_ERR("[SWEEP] Baseline capture failed");
+        return -1;
+    }
+    uint64_t baselineScore = baseSx + baseSy;
+    DBG_INFO("[SWEEP] Baseline score=%llu", (unsigned long long)baselineScore);
+
+    // Command motor to end, start capturing
+    sweepCount_ = 0;
+    sweepMotionStart_ = 0;
+    sweepMotionEnd_ = 0;
+
+
+
+    uint32_t t0 = osKernelGetTickCount();
+    SetFastFocusPosition(endPos);
+    osDelay(10);
+    while ((osKernelGetTickCount() - t0) < settleMs) {
+        int16_t pos = getLastFocusPosition();
+        if (pos <= 10 ) {
+            break;
+        }
+        osDelay(10);
+    }
+    //osDelay(10);  // Short delay to allow motion to start
+
+    uint64_t minScore = baselineScore, maxScore = baselineScore;
+
+    for (uint32_t i = 0; i < MAX_SWEEP_POINTS; i++) {
+        uint32_t elapsed = osKernelGetTickCount() - t0;
+        if (elapsed > timeoutMs) break;
+
+        uint64_t sx, sy;
+        if (!requestSingleCapture(sx, sy)) continue;
+
+        uint64_t score = sx + sy;
+        int16_t pos = getLastFocusPosition();
+
+        // Track min/max
+        if (score < minScore) minScore = score;
+        if (score > maxScore) maxScore = score;
+
+        sweepPoints_[sweepCount_].elapsed_ms = elapsed;
+        sweepPoints_[sweepCount_].score = score;
+
+        // Debug: print every 10th frame
+//        if (sweepCount_ % 10 == 0) {
+//            DBG_INFO("[SWEEP] f%lu: pos=%d score=%llu t=%lu",
+//                     (unsigned long)sweepCount_, pos,
+//                     (unsigned long long)score, (unsigned long)elapsed);
+//        }
+
+        sweepCount_++;
+
+        // Check if arrived at end position
+        if (pos >= 0 && abs(pos - (int16_t)endPos) < 30) {
+            DBG_INFO("[SWEEP] Arrived at end pos %d at frame %lu", pos, (unsigned long)sweepCount_);
+            sweepMotionEnd_ = sweepCount_;
+            break;
+        }
+    }
+
+    // Final position check
+    osDelay(50);
+    int16_t finalPos = getLastFocusPosition();
+    DBG_INFO("[SWEEP] Score range: %llu - %llu (delta=%llu)",
+             (unsigned long long)minScore, (unsigned long long)maxScore,
+             (unsigned long long)(maxScore - minScore));
+    DBG_INFO("[SWEEP] Final pos: %d (commanded %u)", finalPos, endPos);
+
+    // Set motion range (entire sweep is motion)
+    sweepMotionStart_ = 0;
+    if (sweepMotionEnd_ == 0)
+        sweepMotionEnd_ = sweepCount_;
+
+    if (sweepCount_ == 0) {
+        DBG_ERR("[SWEEP] No frames captured");
+        return -1;
+    }
+
+    // Check if motor actually moved
+    if (finalPos >= 0 && abs(finalPos - (int16_t)startPos) < 100) {
+        DBG_ERR("[SWEEP] Motor didn't move! Final pos %d, expected near %u", finalPos, endPos);
+        return -1;
+    }
+
+    // Find best score and interpolate position
+    uint32_t tEnd = sweepPoints_[sweepMotionEnd_ - 1].elapsed_ms;
+
+    uint32_t bestIdx = 0;
+    uint64_t bestScore = 0;
+
+    for (uint32_t i = 0; i < sweepMotionEnd_; i++) {
+        if (sweepPoints_[i].score > bestScore) {
+            bestScore = sweepPoints_[i].score;
+            bestIdx = i;
+        }
+    }
+
+    // Interpolate position based on time fraction
+    float fraction = (float)sweepPoints_[bestIdx].elapsed_ms / (float)tEnd;
+    if (fraction < 0.0f) fraction = 0.0f;
+    if (fraction > 1.0f) fraction = 1.0f;
+
+    int32_t bestPos;
+    if (endPos >= startPos)
+        bestPos = startPos + (int32_t)((endPos - startPos) * fraction);
+    else
+        bestPos = startPos - (int32_t)((startPos - endPos) * fraction);
+
+    DBG_INFO("[SWEEP] %lu frames in %lu ms",
+             (unsigned long)sweepCount_, (unsigned long)tEnd);
+    DBG_INFO("[SWEEP] Best: frame %lu (t=%lu), score=%llu, est pos=%ld",
+             (unsigned long)bestIdx,
+             (unsigned long)sweepPoints_[bestIdx].elapsed_ms,
+             (unsigned long long)bestScore,
+             (long)bestPos);
+
+    return bestPos;
+}
+
+
+
+/* ============================================================================
+ * DIAGNOSTIC: measureMotorSpeed
+ * ============================================================================ */
+void RPLens::measureMotorSpeed(uint16_t startPos, uint16_t endPos) {
+
+    const uint32_t MAX_SAMPLES     = 500;
+    const uint32_t MAX_DURATION_MS = 30000;
+    const uint32_t STABLE_COUNT    = 10;
+    const uint64_t STABLE_THRESH   = 5000;
+
+    DBG_INFO("=== MOTOR SPEED MEASUREMENT ===");
+    DBG_INFO("Moving to start position %u...", startPos);
+
+    SetFastFocusPosition(startPos);
+    osDelay(3000);
+
+    DBG_INFO("Baseline readings at start...");
+    uint64_t baseScore = 0;
+    for (int i = 0; i < 3; i++) {
+        uint64_t sx, sy;
+        if (requestSingleCapture(sx, sy)) {
+            baseScore = sx + sy;
+            DBG_INFO("  Baseline[%d]: score=%llu", i, (unsigned long long)baseScore);
+        }
+        osDelay(10);
+    }
+
+    DBG_INFO("Commanding move to %u... GO!", endPos);
+    DBG_INFO("frame,elapsed_ms,score,delta");
+
+    uint32_t t0 = osKernelGetTickCount();
+    SetFastFocusPosition(endPos);
+
+    uint32_t stableCounter = 0;
+    uint64_t prevScore = baseScore;
+    uint32_t motionDetectedAt = 0;
+    uint32_t motionStoppedAt = 0;
+    bool motionDetected = false;
+
+    for (uint32_t i = 0; i < MAX_SAMPLES; i++) {
+        uint32_t elapsed = osKernelGetTickCount() - t0;
+        if (elapsed > MAX_DURATION_MS) break;
+
+        uint64_t sx, sy;
+        if (!requestSingleCapture(sx, sy)) continue;
+
+        uint64_t score = sx + sy;
+        int64_t delta = (int64_t)score - (int64_t)prevScore;
+        int64_t absDelta = (delta < 0) ? -delta : delta;
+
+        DBG_INFO("%lu,%lu,%llu,%lld",
+                 (unsigned long)i, (unsigned long)elapsed,
+                 (unsigned long long)score, (long long)delta);
+
+        if (!motionDetected && (uint64_t)absDelta > STABLE_THRESH * 3) {
+            motionDetected = true;
+            motionDetectedAt = elapsed;
+            DBG_INFO(">>> Motion detected at %lu ms", (unsigned long)elapsed);
+        }
+
+        if (motionDetected) {
+            if ((uint64_t)absDelta <= STABLE_THRESH) {
+                stableCounter++;
+                if (stableCounter >= STABLE_COUNT) {
+                    motionStoppedAt = elapsed;
+                    DBG_INFO(">>> Motor stopped at %lu ms", (unsigned long)elapsed);
+                    break;
+                }
+            } else {
+                stableCounter = 0;
+            }
+        }
+
+        prevScore = score;
+    }
+
+    DBG_INFO("=== RESULTS ===");
+    DBG_INFO("Range: %u -> %u (%d steps)", startPos, endPos, (int)endPos - (int)startPos);
+
+    if (motionStoppedAt > motionDetectedAt) {
+        uint32_t travelTime = motionStoppedAt - motionDetectedAt;
+        float speed = (float)((int)endPos - (int)startPos) / (float)travelTime;
+        DBG_INFO("Travel time: %lu ms", (unsigned long)travelTime);
+        DBG_INFO("Speed: %.1f pos/ms (%.0f pos/sec)", speed, speed * 1000.0f);
+        DBG_INFO("Frames at 25fps: %.0f", (float)travelTime / 40.0f);
+    }
+    DBG_INFO("===============================");
+}
+
+/* ============================================================================
+ * LEGACY: Step-based scan functions (kept for comparison/debugging)
+ * ============================================================================ */
 
 void RPLens::runFocusScan() {
-    DBG_INFO("RPLens: Running focus scan...");
-
-    uint32_t seq = 0;
-
-    // Clear results
+    DBG_INFO("RPLens: Running focus scan (legacy)...");
     memset(afResults_, 0, sizeof(afResults_));
 
-    // Move to start position
-    DBG_INFO("  Moving to start position %d...", AF_START_POSITION);
     SetFastFocusPosition(AF_START_POSITION);
     osDelay(500);
 
-    // Clear mailbox request
     g_mb.req_cmd = MB_IDLE;
     g_mb.req_seq = 0;
     __DMB();
     osDelay(100);
 
-    // Run scan
     for (uint8_t step = 0; step < AF_NUM_STEPS; step++) {
-        uint16_t currentPosition = AF_START_POSITION + (step * AF_STEP_INCREMENT);
+        uint16_t pos = AF_START_POSITION + (step * AF_STEP_INCREMENT);
 
-        // Move focus (skip for step 0)
         if (step > 0) {
-        	SetFastFocusPosition(currentPosition);
+            SetFastFocusPosition(pos);
             osDelay(AF_MOTOR_SETTLE_MS);
         }
 
-        // Store position
-        afResults_[step].focusPosition = currentPosition;
+        afResults_[step].focusPosition = pos;
+        uint64_t sx, sy;
+        if (requestSingleCapture(sx, sy)) {
+            afResults_[step].sumX = sx;
+            afResults_[step].sumY = sy;
+            afResults_[step].totalScore = sx + sy;
+            afResults_[step].valid = 1;
+        } else {
+            afResults_[step].valid = 0;
+        }
+    }
+}
 
-        // Request capture
-        seq++;
+void RPLens::runFocusScanMulti(uint32_t capturesPerStep) {
+    DBG_INFO("RPLens: Running focus scan multi (legacy, %lu cap/step)...",
+             (unsigned long)capturesPerStep);
 
-        // Clear response flag
+    memset(afResults_, 0, sizeof(afResults_));
+    SetFastFocusPosition(AF_START_POSITION);
+    osDelay(500);
+
+    g_mb.req_cmd = MB_IDLE;
+    g_mb.req_seq = 0;
+    __DMB();
+    osDelay(100);
+
+    uint64_t scoresX[MAX_MULTI_CAPTURES];
+    uint64_t scoresY[MAX_MULTI_CAPTURES];
+
+    for (uint8_t step = 0; step < AF_NUM_STEPS; step++) {
+        uint16_t pos = AF_START_POSITION + (step * AF_STEP_INCREMENT);
+        if (step > 0) {
+            SetFastFocusPosition(pos);
+            osDelay(AF_MOTOR_SETTLE_MS);
+        }
+
+        afResults_[step].focusPosition = pos;
+        uint32_t captured = requestMultiCapture(capturesPerStep, scoresX, scoresY);
+        if (captured > 0) {
+            uint64_t totalX = 0, totalY = 0;
+            for (uint32_t n = 0; n < captured; n++) {
+                totalX += scoresX[n];
+                totalY += scoresY[n];
+            }
+            afResults_[step].sumX = totalX / captured;
+            afResults_[step].sumY = totalY / captured;
+            afResults_[step].totalScore = afResults_[step].sumX + afResults_[step].sumY;
+            afResults_[step].valid = 1;
+        } else {
+            afResults_[step].valid = 0;
+        }
+    }
+}
+
+int32_t RPLens::runSmoothScan(uint16_t startPos, uint16_t endPos, uint32_t) {
+    DBG_WARN("runSmoothScan deprecated, using sweepCapture");
+    return sweepCapture(startPos, endPos);
+}
+
+int8_t RPLens::findBestStep() {
+    int8_t best = -1;
+    uint64_t bestScore = 0;
+    for (uint8_t s = 0; s < AF_NUM_STEPS; s++) {
+        if (afResults_[s].valid && afResults_[s].totalScore > bestScore) {
+            bestScore = afResults_[s].totalScore;
+            best = s;
+        }
+    }
+    return best;
+}
+
+void RPLens::printRawXYData() {
+    DBG_INFO("=== RAW X/Y (frame 0) ===");
+    for (int i = 0; i < XY_SAMPLES; i++) {
+        DBG_INFO("%d,%lu,%lu", i,
+                 (unsigned long)g_mb.frames[0].x[i],
+                 (unsigned long)g_mb.frames[0].y[i]);
+    }
+}
+
+void RPLens::printAutofocusResults() {
+    int8_t best = findBestStep();
+    DBG_INFO("=== AF RESULTS ===");
+    for (uint8_t s = 0; s < AF_NUM_STEPS; s++) {
+        if (afResults_[s].valid) {
+            DBG_INFO("Step %2d: Pos=%4u Score=%llu %s", s,
+                     afResults_[s].focusPosition,
+                     (unsigned long long)afResults_[s].totalScore,
+                     (s == best) ? "<<<" : "");
+        }
+    }
+}
+
+/* ============================================================================
+ * DEBUG: Simple step-by-step scan with detailed XY printout
+ *
+ * Tests mailbox communication by doing single captures at fixed positions
+ * and printing all the raw data.
+ * ============================================================================ */
+void RPLens::debugScanSingleStep() {
+    DBG_INFO("========== DEBUG SCAN START ==========");
+    DBG_INFO("Testing mailbox with single captures...");
+
+    // Test positions
+    const uint16_t testPositions[] = {0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000};
+    const int numPositions = sizeof(testPositions) / sizeof(testPositions[0]);
+
+    // Reset mailbox state
+    g_mb.req_cmd = MB_IDLE;
+    g_mb.req_seq = 0;
+    g_mb.rsp_ready = 0;
+    __DMB();
+
+    DBG_INFO("Mailbox reset. Starting scan...");
+
+    for (int i = 0; i < numPositions; i++) {
+        uint16_t pos = testPositions[i];
+
+        DBG_INFO("--- Position %d: %u ---", i, pos);
+
+        // Move motor
+        SetFastFocusPosition(pos);
+        osDelay(300);  // Wait for motor to settle
+
+        // Request single capture
+        uint32_t seq = nextSeq();
+
+        DBG_INFO("Requesting capture, seq=%lu", (unsigned long)seq);
+
         g_mb.rsp_ready = 0;
-
-        // Set request parameters
-        g_mb.req_step = step;
-        g_mb.req_seq = seq;
+        g_mb.req_step  = i;
+        g_mb.req_seq   = seq;
+        g_mb.req_count = 1;
         __DMB();
-
-        // Send request command
         g_mb.req_cmd = MB_REQ_CAPTURE;
         __DMB();
 
-        // Wait for response with timeout (matching old RequestCapture)
+        DBG_INFO("  req_cmd=%lu, req_seq=%lu, waiting...",
+                 (unsigned long)g_mb.req_cmd, (unsigned long)g_mb.req_seq);
+
+        // Wait for response with timeout
         uint32_t startTime = osKernelGetTickCount();
-        bool success = false;
+        bool gotResponse = false;
 
-        while (1) {
-            uint32_t now = osKernelGetTickCount();
-
-            // Check timeout
-            if ((now - startTime) > AF_CAPTURE_TIMEOUT_MS) {
-                break;
-            }
-
-            // Memory barrier before reading
+        while ((osKernelGetTickCount() - startTime) < 2000) {  // 2 second timeout
             __DMB();
-
-            // Check if response ready with matching sequence (NOT checking rsp_step!)
-            if (g_mb.rsp_ready == 1 && g_mb.rsp_seq == seq) {
-                success = true;
+            if (g_mb.rsp_ready == 1) {
+                gotResponse = true;
                 break;
             }
+            osDelay(10);
         }
 
-        if (success) {
-            __DMB();
-            afResults_[step].sumX = g_mb.sumX;
-            afResults_[step].sumY = g_mb.sumY;
-            afResults_[step].totalScore = g_mb.sumX + g_mb.sumY;
-            afResults_[step].valid = 1;
+        if (!gotResponse) {
+            DBG_ERR("  TIMEOUT! No response from M7");
+            DBG_ERR("  rsp_ready=%lu, rsp_seq=%lu",
+                    (unsigned long)g_mb.rsp_ready, (unsigned long)g_mb.rsp_seq);
+            continue;
+        }
 
-            DBG_INFO("  Step %d: pos=%u, score=%lld",
-                   step, afResults_[step].focusPosition,
-                   (long long)afResults_[step].totalScore);
+        // Got response - print details
+        DBG_INFO("  Response received!");
+        DBG_INFO("  rsp_ready=%lu, rsp_seq=%lu, rsp_status=%lu, rsp_count=%lu",
+                 (unsigned long)g_mb.rsp_ready,
+                 (unsigned long)g_mb.rsp_seq,
+                 (unsigned long)g_mb.rsp_status,
+                 (unsigned long)g_mb.rsp_count);
+
+        if (g_mb.rsp_status == MB_RSP_OK && g_mb.rsp_count > 0) {
+            uint64_t sumX = g_mb.frames[0].sumX;
+            uint64_t sumY = g_mb.frames[0].sumY;
+            uint32_t timestamp = g_mb.frames[0].timestamp;
+
+            DBG_INFO("  sumX=%llu, sumY=%llu, total=%llu",
+                     (unsigned long long)sumX,
+                     (unsigned long long)sumY,
+                     (unsigned long long)(sumX + sumY));
+            DBG_INFO("  timestamp=%lu", (unsigned long)timestamp);
+
+            // Print first few X/Y pairs
+            DBG_INFO("  First 8 X/Y pairs:");
+            for (int j = 0; j < 8; j++) {
+                DBG_INFO("    [%d] X=%lu Y=%lu",
+                         j,
+                         (unsigned long)g_mb.frames[0].x[j],
+                         (unsigned long)g_mb.frames[0].y[j]);
+            }
         } else {
-            afResults_[step].valid = 0;
-            DBG_WARN("  Step %d: FAILED", step);
+            DBG_WARN("  Status=%lu (not OK)", (unsigned long)g_mb.rsp_status);
         }
 
-        // Print raw data for debugging
-       // printRawXYData();
-
-
+        // Clear for next request
         g_mb.req_cmd = MB_IDLE;
         __DMB();
+        osDelay(100);
     }
 
-   // printAutofocusResults();
+    DBG_INFO("========== DEBUG SCAN COMPLETE ==========");
 }
 
+/* ============================================================================
+ * Smooth Autofocus - Fast sweep then fine tune
+ *
+ * Pass 1: Fast continuous sweep 0→4000, capture scores, find peak region
+ * Pass 2: Go fast to best position
+ * Fine:   Fine tune around peak
+ * ============================================================================ */
+void RPLens::handleSmoothAutofocus() {
+    uint32_t afStart = osKernelGetTickCount();
+    DBG_INFO("========== SMOOTH AUTOFOCUS START ==========");
 
+    // Set max speed for initial movements
+    SetZoomFocusSpeed(7);
+    osDelay(10);
 
-void RPLens::printAutofocusResults() {
-    DBG_INFO("=== AUTOFOCUS RESULTS ===");
+    // ========== PASS 1: Fast sweep 0 -> 4000 ==========
+    DBG_INFO("[PASS1] Fast sweep 0 -> 4000 (speed 7)");
 
-    int8_t bestStep = -1;
-    int64_t bestScore = 0;
+    // Move to position 0 and wait for arrival
+    SetFastFocusPosition(0);
+    osDelay(10);
+    uint32_t t0 = osKernelGetTickCount();
+    while ((osKernelGetTickCount() - t0) < 1500) {
+        int16_t pos = getLastFocusPosition();
+        if (pos >= 0 && pos < 30) {
+            DBG_INFO("[PASS1] At start pos %d", pos);
+            break;
+        }
+        osDelay(10);
+    }
+    osDelay(50);
 
-    for (uint8_t step = 0; step < AF_NUM_STEPS; step++) {
-        if (afResults_[step].valid) {
-            DBG_INFO("Step %2d: Pos=%4u, Score=%lld",
-                   step,
-                   afResults_[step].focusPosition,
-                   (long long)afResults_[step].totalScore);
+    // Start sweep to 4000, capture during motion
+    SetFastFocusPosition(4000);
+    osDelay(10);
 
-            int64_t absScore = afResults_[step].totalScore;
-            if (absScore < 0) absScore = -absScore;
+    int16_t pass1BestPos = 0;
+    uint64_t pass1BestScore = 0;
+    uint32_t frameCount = 0;
 
-            if (bestStep < 0 || absScore > bestScore) {
-                bestScore = absScore;
-                bestStep = step;
+    uint32_t sweepStart = osKernelGetTickCount();
+    while ((osKernelGetTickCount() - sweepStart) < 5000) {
+        // Check if arrived at end
+        int16_t pos = getLastFocusPosition();
+        if (pos >= 0 && pos >= 3970) {
+            DBG_INFO("[PASS1] Reached end at pos %d", pos);
+            break;
+        }
+
+        // Capture score
+        uint64_t sx, sy;
+        if (requestSingleCapture(sx, sy)) {
+            uint64_t score = sx + sy;
+            frameCount++;
+
+            if (score > pass1BestScore) {
+                pass1BestScore = score;
+                pass1BestPos = pos;
+            }
+
+            // Debug every 10 frames
+            if (frameCount % 10 == 0) {
+                DBG_INFO("[PASS1] f%lu: pos=%d score=%llu",
+                         (unsigned long)frameCount, pos, (unsigned long long)score);
             }
         }
     }
 
-    if (bestStep >= 0) {
-        DBG_INFO(">>> BEST: Step %d, Pos %u <<<",
-               bestStep, afResults_[bestStep].focusPosition);
+    uint32_t t1 = osKernelGetTickCount() - afStart;
+    DBG_INFO("[PASS1] Done: %lu frames, best pos=%d score=%llu (%lu ms)",
+             (unsigned long)frameCount, pass1BestPos,
+             (unsigned long long)pass1BestScore, (unsigned long)t1);
+
+    if (pass1BestScore == 0) {
+        DBG_ERR("Smooth AF failed - no valid scores in pass 1");
+        SetZoomFocusSpeed(7);  // Restore speed
+        return;
     }
-    DBG_INFO("=========================");
+
+    // ========== PASS 2: Go fast to best position ==========
+    DBG_INFO("[PASS2] Moving fast to best pos=%d", pass1BestPos);
+
+    SetZoomFocusSpeed(7);
+    osDelay(10);
+    SetFastFocusPosition(pass1BestPos);
+
+    // Wait for arrival
+    t0 = osKernelGetTickCount();
+    while ((osKernelGetTickCount() - t0) < 1500) {
+        int16_t pos = getLastFocusPosition();
+        if (pos >= 0 && abs(pos - pass1BestPos) < 30) {
+            DBG_INFO("[PASS2] Arrived at pos %d", pos);
+            break;
+        }
+        osDelay(10);
+    }
+    osDelay(100);  // Settle
+
+    uint32_t t2 = osKernelGetTickCount() - afStart;
+    DBG_INFO("[PASS2] Done (%lu ms)", (unsigned long)t2);
+
+    // ========== FINE: Fine tune around peak ==========
+    int16_t finalPos = pass1BestPos;
+    uint64_t finalScore = 0;//pass1BestScore;
+
+    // Use slow speed for fine tuning
+    SetZoomFocusSpeed(1);
+    osDelay(20);
+
+    // Fine check scanning toward 0 with step 25
+    DBG_INFO("[FINE] Fine check from pos=%d toward 0", pass1BestPos);
+
+    for (int offset = 0; offset <=200 ; offset += 25) {
+        int16_t testPos = pass1BestPos + offset;
+        if (testPos < 0) testPos = 0;
+        if (testPos > 4000) testPos = 4000;
+
+        SetFastFocusPosition(testPos);
+        osDelay(70);  // Settle for precision
+
+        // Get actual position from lens
+        int16_t actualPos = getLastFocusPosition();
+        if (actualPos < 0) actualPos = testPos;  // Fallback to commanded pos
+
+        uint64_t sx, sy;
+        if (requestSingleCapture(sx, sy)) {
+            uint64_t score = sx + sy;
+            DBG_INFO("[FINE] cmd=%d actual=%d score=%llu %s",
+                     testPos, actualPos, (unsigned long long)score,
+                     (score > finalScore) ? "^^^" : "");
+
+            if (score > finalScore) {
+                finalScore = score;
+                finalPos = actualPos;  // Use actual position
+            }
+            else {
+				// Stop if score is decreasing
+				break;
+            }
+        }
+    }
+
+    // Restore full speed and move to final position
+    SetZoomFocusSpeed(7);
+    osDelay(10);
+    SetFastFocusPosition(finalPos);
+    osDelay(50);
+
+    uint32_t totalMs = osKernelGetTickCount() - afStart;
+    DBG_INFO("========== SMOOTH AF COMPLETE ==========");
+    DBG_INFO("Smooth AF: pos=%d, score=%llu, time=%lu ms",
+             finalPos, (unsigned long long)finalScore, (unsigned long)totalMs);
 }
-
-

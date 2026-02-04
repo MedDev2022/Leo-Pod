@@ -414,7 +414,9 @@ void Host::parseAndProcess(const comm::Message& msg) {
 
         case 0x26:  // RPLens Autofocus Request
             if (rpLens_) {
-                rpLens_->handleAutofocus();
+                //rpLens_->handleAutofocus();
+                //rpLens_->handleQuickAutofocus();
+                rpLens_->handleSmoothAutofocus();
                 DBG_INFO("RP Lens Autofocus\r\n");
             }
             break;

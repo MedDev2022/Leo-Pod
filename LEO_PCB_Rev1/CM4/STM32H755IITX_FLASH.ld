@@ -45,6 +45,7 @@ MEMORY
 {
 FLASH (rx)     : ORIGIN = 0x08100000, LENGTH = 1024K
 RAM (xrw)      : ORIGIN = 0x10000000, LENGTH = 288K
+RAM_D2 (xrw)   : ORIGIN = 0x30000000, LENGTH = 288K
 RAM_D3 (xrw)   : ORIGIN = 0x30010000, LENGTH = 32K
 }
 
@@ -171,7 +172,7 @@ SECTIONS
   *(.shared_ram)
   . = ALIGN(32);           /* Ensure end is also aligned */
   __shared_ram_end = .;
-} >RAM_D3
+} >RAM_D2
 
 
   /* Remove information from the standard libraries */

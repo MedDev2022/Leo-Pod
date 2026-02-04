@@ -22,16 +22,13 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-//#define SHARED_FOCUS_IPC_OWNER
 #include "shared_focus_ipc.h"
 #include <string.h>
-//__attribute__((section(".shared_ram")))
-//volatile SharedMailbox_t g_mb = {0};
 
-#define g_mb (*(volatile SharedMailbox_t*)0x30010000)
+#define g_mb (*(volatile SharedMailbox_t*)SHARED_MAILBOX_ADDR)
 
 /* ============================================================================
- * FPGA RECEPTION BUFFERS - Replace your existing buffers
+ * FPGA RECEPTION BUFFERS
  * ============================================================================ */
 #define FPGA_PACKET_SIZE    516     /* 512 data + 2 header bytes + 2 trailer */
 
@@ -39,11 +36,6 @@ static uint8_t RxBuff1[1024];       /* DMA receive buffer */
 static uint8_t RxBuff[FPGA_PACKET_SIZE*2];  /* Validated packet */
 static volatile uint8_t RXBuffReady = 0;
 static volatile uint16_t RX_size = 0;
-
-/* Extern declaration */
-//extern volatile FocusCmd_t focusCmd;
-
-//extern volatile SharedMailbox_t g_mb;
 
 /* USER CODE END Includes */
 
@@ -66,11 +58,6 @@ static volatile uint16_t RX_size = 0;
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
-
-uint8_t txBuf[] = "Hello DMA UART6\r\n";
-
-
 
 /* USER CODE END PM */
 
@@ -96,16 +83,6 @@ static void MX_USART6_UART_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-// uint8_t RxBuff1[70000];
-//uint8_t RxBuff2[200];
-// uint8_t RxBuff3[20];
-// uint8_t RxBuff[70000];
-//
-//
-// uint8_t RXBuffReady = 0 ;
-// uint8_t RX_size = 0;
-
-
 /* ============================================================================
  * Debug: Track mailbox state
  * ============================================================================ */
@@ -115,91 +92,155 @@ static uint32_t dbg_last_req_seq = 0;
 static uint32_t dbg_fpga_packets = 0;
 
 /* ============================================================================
- * CheckMailboxRequest - Check for M4 requests and respond
- * This is SEPARATE from FPGA data processing so we can test communication
+ * ProcessOneFPGAFrame - Parse one FPGA packet from RxBuff into a FrameData_t
+ *
+ * Returns: 1 on success
  * ============================================================================ */
+static uint8_t ProcessOneFPGAFrame(volatile FrameData_t *frame)
+{
+    uint64_t sumX = 0;
+    uint64_t sumY = 0;
+
+    for (int i = 0; i < XY_SAMPLES; i++) {
+        uint32_t offset = i * 8;
+
+        uint32_t xVal = (uint32_t)(
+            ((uint32_t)RxBuff[offset + 0])       |
+            ((uint32_t)RxBuff[offset + 1] << 8)  |
+            ((uint32_t)RxBuff[offset + 2] << 16) |
+            ((uint32_t)RxBuff[offset + 3] << 24)
+        );
+
+        uint32_t yVal = (uint32_t)(
+            ((uint32_t)RxBuff[offset + 4])       |
+            ((uint32_t)RxBuff[offset + 5] << 8)  |
+            ((uint32_t)RxBuff[offset + 6] << 16) |
+            ((uint32_t)RxBuff[offset + 7] << 24)
+        );
+        frame->x[i] = xVal;
+        frame->y[i] = yVal;
+
+        sumX += xVal;
+        sumY += yVal;
+    }
+
+    frame->sumX = sumX;
+    frame->sumY = sumY;
+
+    HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
+    dbg_fpga_packets++;
+
+    return 1;
+}
+
+/* ============================================================================
+ * WaitForFPGAPacket - Block until an FPGA packet arrives or timeout
+ *
+ * Returns: 1 if packet ready, 0 on timeout
+ * ============================================================================ */
+static uint8_t WaitForFPGAPacket(uint32_t timeout_ms)
+{
+    uint32_t start = HAL_GetTick();
+
+    RXBuffReady = 0;
+
+    while (RXBuffReady == 0) {
+        if ((HAL_GetTick() - start) > timeout_ms) {
+            return 0;  /* Timeout */
+        }
+        HAL_Delay(1);
+    }
+
+    return 1;
+}
+
+/* ============================================================================
+ * CheckMailboxRequest - Main mailbox handler
+ *
+ * Supports:
+ *   MB_REQ_CAPTURE (1)       - Single capture: 1 FPGA frame -> frames[0]
+ *   MB_REQ_MULTI_CAPTURE (2) - Multi capture: N frames -> frames[0..N-1]
+ * ============================================================================ */
+#define FPGA_FRAME_TIMEOUT_MS   500
+
 void CheckMailboxRequest(void)
 {
-
-	/* Invalidate cache to see M4's writes */
-    SCB_InvalidateDCache_by_Addr((uint32_t*)&g_mb, sizeof(g_mb));
+    /* Memory barrier to see M4's writes (no cache ops needed if region is non-cacheable) */
+    __DMB();
 
     /* Check if there's a new request we haven't processed */
-    if (g_mb.req_cmd == 0 || g_mb.req_seq == 0) {
-        return;  /* No request pending */
+    if (g_mb.req_cmd == MB_IDLE || g_mb.req_seq == 0) {
+        return;
     }
 
     /* Check if we already responded to this sequence */
     if (g_mb.req_seq == dbg_last_req_seq) {
-        return;  /* Already processed this request */
+        return;
     }
 
-    /* New request! */
+    /* New request! Latch values locally */
     dbg_requests_seen++;
     dbg_last_req_seq = g_mb.req_seq;
 
-    /* Store request values locally before any cache operations */
-    uint32_t req_seq = g_mb.req_seq;
-    uint32_t req_step = g_mb.req_step;
-    uint8_t req_cmd = g_mb.req_cmd;
-    RXBuffReady = 0;
+    uint32_t req_seq   = g_mb.req_seq;
+    uint32_t req_step  = g_mb.req_step;
+    uint8_t  req_cmd   = g_mb.req_cmd;
+    uint32_t req_count = g_mb.req_count;
 
-    while (RXBuffReady == 0)
-	{
-		HAL_Delay(1);
-	}
+    /* Clamp count */
+    if (req_count == 0) req_count = 1;
+    if (req_count > MAX_MULTI_CAPTURES) req_count = MAX_MULTI_CAPTURES;
 
-    /* Process based on command */
+    /* ================================================================
+     * SINGLE CAPTURE (cmd == 1): 1 frame -> frames[0]
+     * ================================================================ */
     if (req_cmd == MB_REQ_CAPTURE) {
-        /* For capture request, check if we have FPGA data */
-        if (RXBuffReady) {
-            /* Process FPGA data */
-            uint64_t sumX = 0;
-            uint64_t sumY = 0;
 
-            for (int i = 0; i < XY_SAMPLES; i++) {
-                uint32_t offset = i * 8;
-
-                uint32_t xVal = (uint32_t)(
-                    ((uint32_t)RxBuff[offset + 0])       |
-                    ((uint32_t)RxBuff[offset + 1] << 8)  |
-                    ((uint32_t)RxBuff[offset + 2] << 16) |
-                    ((uint32_t)RxBuff[offset + 3] << 24)
-                );
-
-                uint32_t yVal = (uint32_t)(
-                    ((uint32_t)RxBuff[offset + 4])       |
-                    ((uint32_t)RxBuff[offset + 5] << 8)  |
-                    ((uint32_t)RxBuff[offset + 6] << 16) |
-                    ((uint32_t)RxBuff[offset + 7] << 24)
-                );
-
-               g_mb.x[i] = xVal;
-               //g_mb.y[i] = yVal;
-                g_mb.y[i] =0;
-                sumX += xVal;
-                //sumY += yVal;
-                sumY += 0;
-            }
-  //          HAL_UART_Transmit(&huart6, RxBuff, (FPGA_PACKET_SIZE-1), 1000);
-
-            HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
-            g_mb.sumX = sumX;
-            g_mb.sumY = sumY;
-            g_mb.rsp_status = 0;  /* OK - have data */
-         //   RXBuffReady = 0;
-            dbg_fpga_packets++;
+        if (WaitForFPGAPacket(FPGA_FRAME_TIMEOUT_MS)) {
+            ProcessOneFPGAFrame(&g_mb.frames[0]);
+            g_mb.rsp_count  = 1;
+            g_mb.rsp_status = MB_RSP_OK;
         } else {
-            g_mb.sumX = 0;
-            g_mb.sumY = 0;
-            g_mb.rsp_status = 1;  /* No FPGA data available */
+            g_mb.rsp_count  = 0;
+            g_mb.rsp_status = MB_RSP_NO_DATA;
         }
-    } else {
-        g_mb.rsp_status = 2;  /* Unknown command */
+    }
+    /* ================================================================
+     * MULTI CAPTURE (cmd == 2): N frames -> frames[0..N-1]
+     * ================================================================ */
+    else if (req_cmd == MB_REQ_MULTI_CAPTURE) {
+
+        uint32_t captured = 0;
+
+        for (uint32_t n = 0; n < req_count; n++) {
+            if (!WaitForFPGAPacket(FPGA_FRAME_TIMEOUT_MS)) {
+                break;  /* Timeout - stop collecting */
+            }
+
+            ProcessOneFPGAFrame(&g_mb.frames[n]);
+            captured++;
+        }
+
+        g_mb.rsp_count = captured;
+
+        if (captured == 0) {
+            g_mb.rsp_status = MB_RSP_NO_DATA;
+        } else if (captured < req_count) {
+            g_mb.rsp_status = MB_RSP_PARTIAL;
+        } else {
+            g_mb.rsp_status = MB_RSP_OK;
+        }
+    }
+    /* ================================================================
+     * UNKNOWN COMMAND
+     * ================================================================ */
+    else {
+        g_mb.rsp_status = MB_RSP_UNKNOWN_CMD;
+        g_mb.rsp_count  = 0;
     }
 
     /* Set response fields */
-    g_mb.rsp_seq = req_seq;
+    g_mb.rsp_seq  = req_seq;
     g_mb.rsp_step = req_step;
 
     /* Memory barrier BEFORE setting ready flag */
@@ -208,8 +249,8 @@ void CheckMailboxRequest(void)
     /* NOW set ready flag */
     g_mb.rsp_ready = 1;
 
-    /* Clean ENTIRE mailbox so M4 sees ALL updates */
-    SCB_CleanDCache_by_Addr((uint32_t*)&g_mb, sizeof(g_mb));
+    /* Memory barrier after write */
+    __DMB();
 
     dbg_responses_sent++;
 }
@@ -255,10 +296,20 @@ int main(void)
 
   /* USER CODE BEGIN Init */
 
-  /* Clear mailbox BEFORE releasing M4 */
-//  memset((void*)&g_mb, 0, sizeof(g_mb));
-//  __DMB();  // Ensure writes complete
-//  SCB_CleanDCache_by_Addr((uint32_t*)&g_mb, sizeof(g_mb));
+
+  /* Zero mailbox control fields before releasing M4.
+   * Don't memset the entire struct — SCB_CleanDCache on this
+   * D2 SRAM region can hang depending on MPU/cache config. */
+  g_mb.req_cmd   = 0;
+  g_mb.req_step  = 0;
+  g_mb.req_seq   = 0;
+  g_mb.req_count = 0;
+  g_mb.rsp_ready = 0;
+  g_mb.rsp_seq   = 0;
+  g_mb.rsp_step  = 0;
+  g_mb.rsp_status = 0;
+  g_mb.rsp_count = 0;
+  __DMB();
 
   /* USER CODE END Init */
 
@@ -314,11 +365,7 @@ Error_Handler();
       /* Process FPGA data if available */
       ProcessFPGAData();
 
-      /* Heartbeat LED */
-
-
-      HAL_Delay(50);
-
+      HAL_Delay(1);
 
     /* USER CODE END WHILE */
 
@@ -518,6 +565,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size)
 
     if (huart->Instance == USART6)
     {
+   HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
 
     RX_size = size;
     	// Clear relevant UART flags before processing
