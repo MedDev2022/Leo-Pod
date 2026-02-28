@@ -40,9 +40,9 @@ extern uint8_t MY_ID;
 /**
  * Protocol constants
  */
-constexpr uint8_t HEADER_BYTE = 0xAA;
-constexpr uint8_t FOOTER_BYTE = 0x55;
-constexpr uint8_t MAX_PAYLOAD_SIZE = 255;
+static constexpr uint8_t MAX_PAYLOAD_SIZE = 255;
+static constexpr uint8_t START_BYTE = 0xAA; //Start Byte
+static constexpr uint8_t FOOTER_BYTE = 0x55; //Stop Byte
 /**
  * Calculate a CRC for a given array, starting from an offset
  *
@@ -132,8 +132,6 @@ public:
 		static constexpr size_t FOOTER_SIZE = 1;
 
 
-		static constexpr uint8_t START_BYTE = 0xAA; //Start Byte
-		static constexpr uint8_t FOOTER_BYTE = 0x55; //Stop Byte
 
 		// Public members (for compatibility)
 		uint8_t m_Header;

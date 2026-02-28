@@ -130,6 +130,10 @@ public:
 	void SetMinimumRangeCommand();
 	void SetMaximumRangeCommand();
 
+	void parseStatus(const uint8_t* payload);
+
+	void parseRanges(const uint8_t* payload);
+
 
 private:
 	
@@ -141,7 +145,9 @@ private:
 protected:
 //    void onReceiveByte(uint8_t byte) override;
 //    void processIncoming() override;
-void processRxData(const uint8_t* data, uint16_t length) override;
+    size_t processRxData(const uint8_t* data, size_t length) override;
 };
+
+
 
 #endif /* LRX20A_H_ */

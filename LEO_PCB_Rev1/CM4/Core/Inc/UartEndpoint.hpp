@@ -12,6 +12,9 @@ enum class DevCommMode {
 	Transparent		//Raw forwarding
 };
 
+
+
+
 class UartEndpoint {
 public:
 
@@ -30,7 +33,7 @@ public:
     int write(const uint8_t* data, size_t length);
 
     // Pure virtual - derived classes must implement
-    virtual void processRxData(const uint8_t* data, uint16_t length) = 0;
+    virtual size_t processRxData(const uint8_t* data, size_t length) = 0;
 
     // Transparent mode
     void setTransparentMode(bool enable, UartEndpoint* destination = nullptr);
@@ -52,9 +55,24 @@ protected:
     UartEndpoint* destEndpoint_ = nullptr;
     uint32_t baudrate_;
 
+
+        static constexpr size_t RX_ACCUMULATE_SIZE = 512;
+        static constexpr uint32_t RX_PARTIAL_TIMEOUT_MS = 500;
+
+        uint8_t rxAccumBuf_[RX_ACCUMULATE_SIZE];
+        size_t rxAccumLen_ = 0;
+        TickType_t lastRxTime_ = 0;
+
+        // Each device returns bytes consumed, 0 = need more data
+        //virtual size_t processRxData(const uint8_t* data, size_t length) = 0;
+
+       // void rxTaskLoop();
+
+        const char* name_;
+
 private:
-    static constexpr size_t RX_BUFFER_SIZE = 256;
-    static constexpr size_t TX_BUFFER_SIZE = 512;
+    static constexpr size_t RX_BUFFER_SIZE = 1024;
+    static constexpr size_t TX_BUFFER_SIZE = 1024;
     static constexpr size_t TX_CHUNK_SIZE = 64;
 
     // Stream buffers

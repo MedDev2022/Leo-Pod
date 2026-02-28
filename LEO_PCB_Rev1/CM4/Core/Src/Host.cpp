@@ -141,99 +141,89 @@ void Host::handleTimeout() {
     // ALWAYS reset at the end
     resetReception();
 }
-    void Host::processRxData(const uint8_t* data, uint16_t length) {
 
-        if (data == nullptr || length == 0 ) {
-            return;
+
+size_t Host::processRxData(const uint8_t* data, size_t length) {
+    if (data == nullptr || length == 0) {
+        return 0;
+    }
+
+    comm::Message rxMsg;
+
+    if (!rxMsg.parse(data, length)) {
+        // Could be incomplete OR invalid
+        // If we can't even read the header, it's incomplete
+        if (length < comm::Message::MIN_MESSAGE_SIZE) {
+            return 0;  // Need more data
         }
+        // Otherwise it's invalid - skip one byte to try resync
+        printf("Host: Message parse failed, resyncing\r\n");
+        return 1;
+    }
 
-        // ========================================
-        // Use comm::Message::parse() - handles:
-        //   - Header/footer validation
-        //   - Length validation
-        //   - CRC verification
-        //   - Payload extraction
-        // ========================================
-        comm::Message rxMsg;
+    printf("Host: Valid! Src=0x%02X Dest=0x%02X Op=0x%02X Len=%u\r\n",
+           rxMsg.m_srcID, rxMsg.m_destID, rxMsg.m_opCode, rxMsg.m_length);
 
-        if (!rxMsg.parse(data, length)) {
-            printf("Host: Message parse failed (invalid format or CRC)\r\n");
-            return;
-        }
-
-        printf("Host: Valid! Src=0x%02X Dest=0x%02X Op=0x%02X Len=%u\r\n",
-               rxMsg.m_srcID, rxMsg.m_destID, rxMsg.m_opCode, rxMsg.m_length);
-
-        // ========================================
-        // ROUTE based on destination
-        // ========================================
-        if (rxMsg.m_destID != LEOPOD_ID && rxMsg.m_destID != HOST_ID) {
-            // Message is NOT for us - forward PAYLOAD ONLY to target device
-//            printf("Host: Routing to device 0x%02X (%s)\r\n",
-//                   rxMsg.m_destID, comm::getDeviceName(rxMsg.m_destID));
-
-            if (forwardPayloadToDevice(rxMsg)) {
-               // printf("Host: Payload forwarded successfully\r\n");
-            } else {
-               // printf("Host: Forward failed - unknown device 0x%02X\r\n", rxMsg.m_destID);
-            }
-            return;
-        }
-
-        // ========================================
-        // PROCESS locally (message for Host/Leopod)
-        // ========================================
+    // Route based on destination
+    if (rxMsg.m_destID != LEOPOD_ID && rxMsg.m_destID != HOST_ID) {
+        forwardPayloadToDevice(rxMsg);
+    } else {
         parseAndProcess(rxMsg);
     }
-    // ============================================================================
-    // FORWARD PAYLOAD ONLY TO DEVICE
-    // Extracts payload from message and sends raw bytes to target device
-    // ============================================================================
 
+    // Return total frame size consumed
+    return rxMsg.size();  // header + payload + CRC + footer
 
-//void Host::processRxData(const uint8_t* data, uint16_t length) {
-//    if (data == nullptr || length == 0) {
-//        return;
-//    }
+}
+//    void Host::processRxData(const uint8_t* data, uint16_t length) {
 //
-//    uint16_t offset = 0;
-//
-//    while (offset < length) {
-//        // Skip until we find a header byte
-//        while (offset < length && data[offset] != comm::HEADER_BYTE) {
-//            offset++;
+//        if (data == nullptr || length == 0 ) {
+//            return;
 //        }
 //
-//        // No more potential messages
-//        if (offset >= length) {
-//            break;
-//        }
-//
-//        // Check if enough bytes remain for minimum message
-//        size_t remaining = length - offset;
-//        if (remaining < 6 + 2) {  // header + CRC + footer minimum
-//            break;
-//        }
-//
-//        // Try to parse
+//        // ========================================
+//        // Use comm::Message::parse() - handles:
+//        //   - Header/footer validation
+//        //   - Length validation
+//        //   - CRC verification
+//        //   - Payload extraction
+//        // ========================================
 //        comm::Message rxMsg;
-//        uint16_t consumed = rxMsg.parse(data + offset, remaining);
 //
-//        if (consumed > 0) {
-//            // Valid message - process it
-//            offset += consumed;
-//
-//            if (rxMsg.m_destID != LEOPOD_ID && rxMsg.m_destID != HOST_ID) {
-//                forwardPayloadToDevice(rxMsg);
-//            } else {
-//                parseAndProcess(rxMsg);
-//            }
-//        } else {
-//            // Invalid message at this header byte - skip it and search for next
-//            offset++;
+//        if (!rxMsg.parse(data, length)) {
+//            printf("Host: Message parse failed (invalid format or CRC)\r\n");
+//            return;
 //        }
+//
+//        printf("Host: Valid! Src=0x%02X Dest=0x%02X Op=0x%02X Len=%u\r\n",
+//               rxMsg.m_srcID, rxMsg.m_destID, rxMsg.m_opCode, rxMsg.m_length);
+//
+//        // ========================================
+//        // ROUTE based on destination
+//        // ========================================
+//        if (rxMsg.m_destID != LEOPOD_ID && rxMsg.m_destID != HOST_ID) {
+//            // Message is NOT for us - forward PAYLOAD ONLY to target device
+////            printf("Host: Routing to device 0x%02X (%s)\r\n",
+////                   rxMsg.m_destID, comm::getDeviceName(rxMsg.m_destID));
+//
+//            if (forwardPayloadToDevice(rxMsg)) {
+//               // printf("Host: Payload forwarded successfully\r\n");
+//            } else {
+//               // printf("Host: Forward failed - unknown device 0x%02X\r\n", rxMsg.m_destID);
+//            }
+//            return;
+//        }
+//
+//        // ========================================
+//        // PROCESS locally (message for Host/Leopod)
+//        // ========================================
+//        parseAndProcess(rxMsg);
 //    }
-//}
+//    // ============================================================================
+//    // FORWARD PAYLOAD ONLY TO DEVICE
+//    // Extracts payload from message and sends raw bytes to target device
+//    // ============================================================================
+
 
 bool Host::forwardPayloadToDevice(const comm::Message& msg) {
 
@@ -340,7 +330,7 @@ void Host::sendDeviceResponse(uint8_t sourceDeviceID,
     // Source = the device that received the response
     // Destination = HOST (external controller)
     comm::Message response;
-    response.m_Header  = comm::HEADER_BYTE;
+    response.m_Header  = comm::START_BYTE;
     response.m_srcID   = sourceDeviceID;
     response.m_destID  = HOST_ID;  // Send to external controller
     response.m_opCode  = opCode;

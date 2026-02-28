@@ -268,7 +268,7 @@ extern  void MyTaskFunction(void *argument)
 
     for (;;)
     {
-        HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
+      //  HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
         osDelay(2000);
     }
 

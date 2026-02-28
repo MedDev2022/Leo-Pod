@@ -42,146 +42,87 @@ void RPLens::Init() {
 }
 
 
-//// ============================================================================
-//// PROCESS DATA RECEIVED FROM RPLENS MOTOR CONTROLLER
-//// Encrypt and send back to Host for forwarding to external controller
-//// ============================================================================
-//size_t RPLens::processRxData(const uint8_t* data, size_t length) {
-//    HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
-//
-//    if (data == nullptr || length == 0) {
-//        return 0;
-//    }
-//
-//
-//    for (uint16_t i = 0; i < length; i++) {
-//        uint8_t byte = data[i];
-//
-//        if (inputMessageInfo.messagePointer == -1) {
-//            // Waiting for sync byte
-//            if (byte == 0x24) {
-//                inputMessageInfo.Reset();
-//                inputMessageInfo.sync = byte;
-//                inputMessageInfo.messagePointer = 0;
-//            }
-//            continue;
-//        }
-//
-//        inputMessageInfo.messagePointer++;
-//
-//        if (inputMessageInfo.messagePointer == 1) {
-//            inputMessageInfo.commandID = byte;
-//        } else if (inputMessageInfo.messagePointer == 2) {
-//            inputMessageInfo.dataLengthLSB = byte;
-//        } else if (inputMessageInfo.messagePointer == 3) {
-//            inputMessageInfo.dataLengthMSB = byte;
-//            inputMessageInfo.BuildMessageContainer();
-//        } else {
-//            // Store data bytes + CRC
-//            if (inputMessageInfo.messagePointer < (int)inputMessageInfo.messageBytes.size()) {
-//                inputMessageInfo.messageBytes[inputMessageInfo.messagePointer] = byte;
-//            }
-//
-//            // Check if message is complete (header + data + CRC)
-//            int expectedLen = 4 + inputMessageInfo.dataLength + 1;  // sync+cmd+len(2) + data + crc
-//            if (inputMessageInfo.messagePointer >= expectedLen - 1) {
-//                // Complete message received - extract position
-//                uint8_t cmdID = inputMessageInfo.commandID;
-//                int dataLen = inputMessageInfo.dataLength;
-//
-//                // Parse position from 0x29, 0x0D, or 0x48 (continuous position report)
-//                if ((cmdID == 0x29 || cmdID == 0x0D || cmdID == 0x48) && dataLen >= 4) {
-//                    int16_t zoomPos  = inputMessageInfo.messageBytes[4]
-//                                     | (inputMessageInfo.messageBytes[5] << 8);
-//                    int16_t focusPos = inputMessageInfo.messageBytes[6]
-//                                     | (inputMessageInfo.messageBytes[7] << 8);
-//                    lastZoomPos_      = zoomPos;
-//                    lastFocusPos_     = focusPos;
-//                    lastPosTimestamp_ = osKernelGetTickCount();
-//
-//                    //DBG_INFO("RPLens POS: zoom=%d focus=%d", zoomPos, focusPos);
-//
-//                }
-//
-//                // Reset for next message
-//                inputMessageInfo.Reset();
-//            }
-//        }
-//    }
-//
-//    // Handle transparent mode - forward raw data
-//    if (commMode_ == DevCommMode::Transparent && destEndpoint_ != nullptr) {
-//        destEndpoint_->write(data, length);
-//        return 0;
-//    }
-//
-//    // Normal mode - send plain data to Host (Host will encrypt)
-//    if (destEndpointW_ != nullptr) {
-//        //printf("RPLens: Sending response to Host\r\n");
-//        Host* host = static_cast<Host*>(destEndpointW_);
-//        host->sendDeviceResponse(RPLENS_ID, data, length);  // Plain data - Host encrypts
-//    } else {
-//       // printf("RPLens: No Host endpoint configured\r\n");
-//    }
-//}
-static constexpr uint8_t RPLENS_SYNC = 0x24;
-static constexpr size_t  RPLENS_HEADER_SIZE = 4;  // sync + cmd + len(2)
-static constexpr size_t  RPLENS_CRC_SIZE = 1;
-
-size_t RPLens::processRxData(const uint8_t* data, size_t length) {
+// ============================================================================
+// PROCESS DATA RECEIVED FROM RPLENS MOTOR CONTROLLER
+// Encrypt and send back to Host for forwarding to external controller
+// ============================================================================
+void RPLens::processRxData(const uint8_t* data, uint16_t length) {
     HAL_GPIO_TogglePin(MCU_LED_1_GPIO_Port, MCU_LED_1_Pin);
 
     if (data == nullptr || length == 0) {
-        return 0;
+        return;
     }
 
-    // Find sync byte
-    if (data[0] != RPLENS_SYNC) {
-        return 1;  // Skip to resync
+
+    for (uint16_t i = 0; i < length; i++) {
+        uint8_t byte = data[i];
+
+        if (inputMessageInfo.messagePointer == -1) {
+            // Waiting for sync byte
+            if (byte == 0x24) {
+                inputMessageInfo.Reset();
+                inputMessageInfo.sync = byte;
+                inputMessageInfo.messagePointer = 0;
+            }
+            continue;
+        }
+
+        inputMessageInfo.messagePointer++;
+
+        if (inputMessageInfo.messagePointer == 1) {
+            inputMessageInfo.commandID = byte;
+        } else if (inputMessageInfo.messagePointer == 2) {
+            inputMessageInfo.dataLengthLSB = byte;
+        } else if (inputMessageInfo.messagePointer == 3) {
+            inputMessageInfo.dataLengthMSB = byte;
+            inputMessageInfo.BuildMessageContainer();
+        } else {
+            // Store data bytes + CRC
+            if (inputMessageInfo.messagePointer < (int)inputMessageInfo.messageBytes.size()) {
+                inputMessageInfo.messageBytes[inputMessageInfo.messagePointer] = byte;
+            }
+
+            // Check if message is complete (header + data + CRC)
+            int expectedLen = 4 + inputMessageInfo.dataLength + 1;  // sync+cmd+len(2) + data + crc
+            if (inputMessageInfo.messagePointer >= expectedLen - 1) {
+                // Complete message received - extract position
+                uint8_t cmdID = inputMessageInfo.commandID;
+                int dataLen = inputMessageInfo.dataLength;
+
+                // Parse position from 0x29, 0x0D, or 0x48 (continuous position report)
+                if ((cmdID == 0x29 || cmdID == 0x0D || cmdID == 0x48) && dataLen >= 4) {
+                    int16_t zoomPos  = inputMessageInfo.messageBytes[4]
+                                     | (inputMessageInfo.messageBytes[5] << 8);
+                    int16_t focusPos = inputMessageInfo.messageBytes[6]
+                                     | (inputMessageInfo.messageBytes[7] << 8);
+                    lastZoomPos_      = zoomPos;
+                    lastFocusPos_     = focusPos;
+                    lastPosTimestamp_ = osKernelGetTickCount();
+
+                    //DBG_INFO("RPLens POS: zoom=%d focus=%d", zoomPos, focusPos);
+
+                }
+
+                // Reset for next message
+                inputMessageInfo.Reset();
+            }
+        }
     }
 
-    // Need header to determine frame size
-    if (length < RPLENS_HEADER_SIZE) {
-        return 0;  // Wait for more
+    // Handle transparent mode - forward raw data
+    if (commMode_ == DevCommMode::Transparent && destEndpoint_ != nullptr) {
+        destEndpoint_->write(data, length);
+        return;
     }
 
-    uint8_t cmdID = data[1];
-    uint16_t dataLen = data[2] | (data[3] << 8);
-
-    // Sanity check
-    if (dataLen > 256) {
-        printf("RPLens: Invalid data length %u, resyncing\r\n", dataLen);
-        return 1;
-    }
-
-    size_t frameSize = RPLENS_HEADER_SIZE + dataLen + RPLENS_CRC_SIZE;
-
-    // Wait for complete frame
-    if (length < frameSize) {
-        return 0;
-    }
-
-    // TODO: verify CRC if needed
-    // uint8_t crc = data[frameSize - 1];
-
-    // Parse position from relevant commands
-    const uint8_t* payload = &data[RPLENS_HEADER_SIZE];
-
-    if ((cmdID == 0x29 || cmdID == 0x0D || cmdID == 0x48) && dataLen >= 4) {
-        int16_t zoomPos  = payload[0] | (payload[1] << 8);
-        int16_t focusPos = payload[2] | (payload[3] << 8);
-        lastZoomPos_      = zoomPos;
-        lastFocusPos_     = focusPos;
-        lastPosTimestamp_ = osKernelGetTickCount();
-    }
-
-    // Forward to Host
+    // Normal mode - send plain data to Host (Host will encrypt)
     if (destEndpointW_ != nullptr) {
+        //printf("RPLens: Sending response to Host\r\n");
         Host* host = static_cast<Host*>(destEndpointW_);
-        host->sendDeviceResponse(RPLENS_ID, data, frameSize);
+        host->sendDeviceResponse(RPLENS_ID, data, length);  // Plain data - Host encrypts
+    } else {
+       // printf("RPLens: No Host endpoint configured\r\n");
     }
-
-    return frameSize;
 }
 
 void RPLens::ZoomStop() {
@@ -249,7 +190,7 @@ void RPLens::SetFocusNear()
 	SendCommand(cmd.data(), cmd.size());
 }
 
-void RPLens::SetContinuousFocusFar()
+void RPLens::SetContinuousFocusNear()
         {
             // 0x24 0x0A 0x0 0x0 0x2E
 	std::vector<uint8_t> cmd = { 0x24, 0x21, 0x0, 0x0, 0x5 };
@@ -265,7 +206,7 @@ void RPLens::SetFocusFar()
     SendCommand(cmd.data(), cmd.size());
 }
 
-void RPLens::SetContinuousFocusNear()
+void RPLens::SetContinuousFocusFar()
         {
             // 0x24 0x0A 0x0 0x0 0x2E
 	std::vector<uint8_t>  cmd = { 0x24, 0x22, 0x0, 0x0, 0x6 };
@@ -1037,95 +978,161 @@ void RPLens::debugScanSingleStep() {
     DBG_INFO("========== DEBUG SCAN COMPLETE ==========");
 }
 
-
 /* ============================================================================
- * Smooth Autofocus - Overshoot then step back to peak
+ * Smooth Autofocus - Fast sweep then fine tune
  *
- * 1. Go to 0, wait
- * 2. Forward sweep speed 1, stop after 4 declining scores
- * 3. Step back in 50 decrements, capture score each step
- *    Score rises as we approach peak, then drops when we pass it
- *    Stop after 2 drops = we just passed peak, nudge forward
+ * Pass 1: Fast continuous sweep 0→4000, capture scores, find peak region
+ * Pass 2: Go fast to best position
+ * Fine:   Fine tune around peak
  * ============================================================================ */
 void RPLens::handleSmoothAutofocus() {
-    DebugPrintf_Enable(1);
-    DBG_INFO("========== AF START ==========");
-    DebugPrintf_Enable(0);
 
-    // Reset
-    ReStartReceive();
-    osDelay(50);
+	this->ReStartReceive();
+
+    uint32_t afStart = osKernelGetTickCount();
+    DBG_INFO("========== SMOOTH AUTOFOCUS START ==========");
+
+    // ========== CLEANUP: Reset motor state from any previous AF run ==========
     FocusStop();
     osDelay(50);
     SetReportMode(0);
     osDelay(20);
 
-    // Go to 0 fast
-    SetZoomFocusSpeed(7);
-    osDelay(50);
-    SetFastFocusPosition(0);
-    osDelay(500);
-    // Wait for arrival
+    EnableContinuousReporting();
+    osDelay(10);
 
+    // Set max speed for initial movements
+    SetZoomFocusSpeed(7);
+    osDelay(10);
+
+    // ========== PASS 1: Fast sweep 0 -> 4000 ==========
+    DBG_INFO("[PASS1] Fast sweep 0 -> 4000 (speed 7)");
+
+    // Move to position 0 and wait for arrival
+    SetFastFocusPosition(0);
+    osDelay(10);
     uint32_t t0 = osKernelGetTickCount();
     while ((osKernelGetTickCount() - t0) < 1500) {
         int16_t pos = getLastFocusPosition();
-        if (pos >= 0 && pos < 10) {
+        if (pos >= 0 && pos < 30) {
+            DBG_INFO("[PASS1] At start pos %d", pos);
+            break;
+        }
+        reqPosition();
+        osDelay(10);
+    }
+    osDelay(50);
+
+    // Record starting position for stuck detection
+    int16_t firstPos = getLastFocusPosition();
+
+    // Start sweep to 4000, capture during motion
+    SetFastFocusPosition(4000);
+    osDelay(10);
+
+    int16_t pass1BestPos = 0;
+    uint64_t pass1BestScore = 0;
+    uint32_t frameCount = 0;
+
+    reqPosition();
+    osDelay(20);
+
+    uint32_t sweepStart = osKernelGetTickCount();
+    while ((osKernelGetTickCount() - sweepStart) < 5000) {
+        // Check if arrived at end
+        int16_t pos = getLastFocusPosition();
+        if (pos >= 0 && pos >= 3970) {
+            DBG_INFO("[PASS1] Reached end at pos %d", pos);
+            break;
+        }
+
+        // Stuck detection: if after 20 frames position hasn't changed, motor is stuck
+        if (frameCount >= 20 && pos >= 0 && abs(pos - firstPos) < 50) {
+            DBG_ERR("[PASS1] Motor stuck at pos %d after %lu frames, aborting",
+                    pos, (unsigned long)frameCount);
+            FocusStop();
+            osDelay(20);
+            SetReportMode(0);
+            return;
+        }
+
+        // Capture score
+        uint64_t sx, sy;
+        if (requestSingleCapture(sx, sy)) {
+            uint64_t score = sx + sy;
+            frameCount++;
+
+            if (score > pass1BestScore) {
+                pass1BestScore = score;
+                pass1BestPos = pos;
+            }
+
+            // Debug every 10 frames
+            if (frameCount % 10 == 0) {
+                DBG_INFO("[PASS1] f%lu: pos=%d score=%llu",
+                         (unsigned long)frameCount, pos, (unsigned long long)score);
+                osDelay(50);
+            }
+        }
+    }
+
+    // Stop motor after sweep
+    FocusStop();
+    osDelay(20);
+
+    uint32_t t1 = osKernelGetTickCount() - afStart;
+    DBG_INFO("[PASS1] Done: %lu frames, best pos=%d score=%llu (%lu ms)",
+             (unsigned long)frameCount, pass1BestPos,
+             (unsigned long long)pass1BestScore, (unsigned long)t1);
+
+    osDelay(50);
+
+    if (pass1BestScore == 0) {
+        DBG_ERR("Smooth AF failed - no valid scores in pass 1");
+        SetZoomFocusSpeed(7);  // Restore speed
+        return;
+    }
+
+    // ========== PASS 2: Go fast to best position ==========
+    DBG_INFO("[PASS2] Moving fast to best pos=%d", pass1BestPos);
+
+    SetZoomFocusSpeed(7);
+    osDelay(10);
+    SetFastFocusPosition(pass1BestPos*0.8);
+
+    osDelay(50);
+
+    // Wait for arrival
+    t0 = osKernelGetTickCount();
+    while ((osKernelGetTickCount() - t0) < 1500) {
+        int16_t pos = getLastFocusPosition();
+        if (pos >= 0 && abs(pos - pass1BestPos*0.8) < 300) {
             DBG_INFO("[PASS2] Arrived at pos %d", pos);
             break;
         }
         reqPosition();
         osDelay(10);
     }
+    // Stop and settle
     FocusStop();
-    osDelay(100);
+    osDelay(100);  // Settle
 
+    uint32_t t2 = osKernelGetTickCount() - afStart;
+    DBG_INFO("[PASS2] Done (%lu ms)", (unsigned long)t2);
 
+    // ========== FINE: Fine tune around peak ==========
+    int16_t finalPos = pass1BestPos*0.8;
+    uint64_t finalScore = 0;//pass1BestScore;
 
-
-    // ========== PHASE 1: Forward sweep, find peak ==========
+    // Use slow speed for fine tuning
     SetZoomFocusSpeed(1);
-    osDelay(50);
-    SetFastFocusPosition(4000);
-    osDelay(50);
+    osDelay(20);
 
-    uint64_t bestScore = 0;
-    uint32_t declining = 0;
-    uint32_t frames = 0;
-    const uint32_t PEAK_CONFIRM = 7;
+    // Fine check scanning toward 0 with step 25
+    DBG_INFO("[FINE] Fine check from pos=%d toward 0", pass1BestPos);
 
-    //uint32_t t0 = osKernelGetTickCount();
-    t0 = osKernelGetTickCount();
-    while ((osKernelGetTickCount() - t0) < 30000) {
-        uint64_t sx, sy;
-        if (!requestSingleCapture(sx, sy)){
-        	osDelay(5);
-        	continue;
-        }
-        uint64_t score = sx + sy;
-
-        frames++;
-
-        if (score >= bestScore) {
-            bestScore = score;
-            declining = 0;
-        } else {
-            declining++;
-            if (declining >= PEAK_CONFIRM) break;
-        }
-    }
-
-    FocusStop();
-    osDelay(50);
-
-    int16_t pass1BestPos = (frames - PEAK_CONFIRM) * 100;
-
-    SetFastFocusPosition(pass1BestPos);
-
-    uint64_t finalScore = bestScore;
-
-    for (int offset = 0; offset <=200 ; offset += 25) {
-        int16_t testPos = pass1BestPos + offset;
+    for (int offset = 0; offset <=300 ; offset += 25) {
+        int16_t testPos = pass1BestPos*0.8 + offset;
         if (testPos < 0) testPos = 0;
         if (testPos > 4000) testPos = 4000;
 
@@ -1140,10 +1147,13 @@ void RPLens::handleSmoothAutofocus() {
         uint64_t sx, sy;
         if (requestSingleCapture(sx, sy)) {
             uint64_t score = sx + sy;
+            DBG_INFO("[FINE] cmd=%d actual=%d score=%llu %s",
+                     testPos, actualPos, (unsigned long long)score,
+                     (score > finalScore) ? "^^^" : "");
 
             if (score > finalScore) {
                 finalScore = score;
-                //finalPos = actualPos;  // Use actual position
+                finalPos = actualPos;  // Use actual position
             }
             else {
 				// Stop if score is decreasing
@@ -1152,54 +1162,21 @@ void RPLens::handleSmoothAutofocus() {
         }
     }
 
+    // ========== FINISH: Move to best position and cleanup ==========
+    SetZoomFocusSpeed(7);
+    osDelay(10);
+    SetFastFocusPosition(finalPos);
+    osDelay(200);
 
-
-    DebugPrintf_Enable(1);
-    DBG_INFO("[SWEEP] %lu frames, best=%llu",
-             (unsigned long)frames, (unsigned long long)bestScore);
-    DebugPrintf_Enable(0);
-
-    // ========== PHASE 2: Step back to peak ==========
-    uint64_t backBest = 0;
-    uint32_t backDecline = 0;
-    uint32_t backFrames = 0;
-
-    for (uint32_t i = 0; i < 40; i++) {
-        SetFocusDecrement(50);
-        osDelay(100);
-
-        uint64_t sx, sy;
-
-        if (!requestSingleCapture(sx, sy)) continue;
-        uint64_t score = sx + sy;
-        backFrames++;
-
-        if (score > bestScore * 0.98) break;
-
-        if (score > backBest) {
-            backBest = score;
-            backDecline = 0;
-        } else {
-        	break;
-            backDecline++;
-            if (backDecline >= 1) {
-                // Passed peak going back, nudge forward to it
-                SetFocusIncrement(100);  // 2 steps × 50
-                osDelay(50);
-                break;
-            }
-        }
-    }
-
+    // Cleanup - stop motor and disable continuous reporting
     FocusStop();
-    osDelay(50);
+    osDelay(20);
+    SetReportMode(0);
+    osDelay(10);
 
-    DebugPrintf_Enable(1);
-    uint32_t totalMs = osKernelGetTickCount() - t0;
-    DBG_INFO("[BACK] %lu frames, best=%llu",
-             (unsigned long)backFrames, (unsigned long long)backBest);
-    DBG_INFO("========== AF DONE: sweep=%llu back=%llu time=%lu ms ==========",
-             (unsigned long long)bestScore,
-             (unsigned long long)backBest,
-             (unsigned long)totalMs);
+
+    uint32_t totalMs = osKernelGetTickCount() - afStart;
+    DBG_INFO("========== SMOOTH AF COMPLETE ==========");
+    DBG_INFO("Smooth AF: pos=%d, score=%llu, time=%lu ms",
+             finalPos, (unsigned long long)finalScore, (unsigned long)totalMs);
 }

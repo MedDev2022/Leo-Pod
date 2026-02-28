@@ -46,7 +46,7 @@ uint8_t CRC8(const uint8_t aData[], uint32_t ulOffset, uint32_t ulLength) {
 // ========================================================================
 
 Message::Message()
-	: m_Header(HEADER_BYTE)
+	: m_Header(START_BYTE)
 	, m_srcID(0)
 	, m_destID(0)
 	, m_opCode(0)
@@ -58,7 +58,7 @@ Message::Message()
 {}
 
 Message::Message(uint8_t destID, uint8_t opCode, uint8_t addr, const uint8_t* data, uint8_t length)
-	: m_Header(HEADER_BYTE)
+	: m_Header(START_BYTE)
 	, m_srcID(MY_ID)
 	, m_destID(destID)
 	, m_opCode(opCode)
@@ -72,7 +72,7 @@ Message::Message(uint8_t destID, uint8_t opCode, uint8_t addr, const uint8_t* da
 }
 
 Message::Message(DeviceID source, DeviceID destination, uint8_t opCode)
-	: m_Header(HEADER_BYTE)
+	: m_Header(START_BYTE)
 	, m_srcID(static_cast<uint8_t>(source))
 	, m_destID(static_cast<uint8_t>(destination))
 	, m_opCode(opCode)
@@ -87,7 +87,7 @@ Message::Message(DeviceID source, DeviceID destination, uint8_t opCode)
 
 Message::Message(DeviceID source, DeviceID destination, uint8_t opCode, uint8_t addr,
                  const uint8_t* data, uint8_t length)
-	: m_Header(HEADER_BYTE)
+	: m_Header(START_BYTE)
 	, m_srcID(static_cast<uint8_t>(source))
 	, m_destID(static_cast<uint8_t>(destination))
 	, m_opCode(opCode)
@@ -114,7 +114,7 @@ bool Message::isForMe(DeviceID myID) const {
 
 bool Message::isOK() const {
 	// Verify header and footer
-	if (m_Header != HEADER_BYTE || m_Footer != FOOTER_BYTE) {
+	if (m_Header != START_BYTE || m_Footer != FOOTER_BYTE) {
 		return false;
 	}
 
@@ -132,7 +132,7 @@ bool Message::isOK() const {
 }
 
 bool Message::isValid() const {
-	return (m_Header == HEADER_BYTE &&
+	return (m_Header == START_BYTE &&
 	        m_Footer == FOOTER_BYTE &&
 	        m_length <= MAX_PAYLOAD_SIZE &&
 	        m_length == m_payload.size());
@@ -229,7 +229,7 @@ void Message::setPayload(const std::vector<uint8_t>& data) {
 		}
 
 		// Verify header and footer
-		if (buffer[0] != HEADER_BYTE || buffer[length - 1] != FOOTER_BYTE) {
+		if (buffer[0] != START_BYTE || buffer[length - 1] != FOOTER_BYTE) {
 			return false;
 		}
 
@@ -318,7 +318,7 @@ void Message::setPayload(const std::vector<uint8_t>& data) {
 			return false;
 		}
 
-		if (buffer[0] != HEADER_BYTE || buffer[length - 1] != FOOTER_BYTE) {
+		if (buffer[0] != START_BYTE || buffer[length - 1] != FOOTER_BYTE) {
 			return false;
 		}
 

@@ -39,6 +39,7 @@ public:
     void SetZoomAndFocusPosition(int zoomPos, int focusPos);
     void SetFastFocusPosition(int focusPos);
     void SetZoomFocusSpeed(uint8_t speed);
+    void reqPosition();
 
     void handleZoomIn(void);
     void handleZoomOut(void);
@@ -52,6 +53,7 @@ public:
     int16_t getLastFocusPosition() const { return lastFocusPos_; }
     int16_t getLastZoomPosition() const  { return lastZoomPos_; }
     uint32_t getLastPositionTimestamp() const { return lastPosTimestamp_; }
+
 
     // Command processing
     void ProcessData();
@@ -107,7 +109,7 @@ public:
 protected:
 //    void onReceiveByte(uint8_t byte) override;
 //    void processIncoming() override;
-    void processRxData(const uint8_t* data, uint16_t length) override;
+    size_t processRxData(const uint8_t* data, size_t length) override;
 
 private:
 

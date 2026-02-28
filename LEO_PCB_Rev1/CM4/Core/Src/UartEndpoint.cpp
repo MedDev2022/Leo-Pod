@@ -64,6 +64,8 @@ bool UartEndpoint::ReStartReceive() {
     HAL_UART_AbortTransmit(huart_);
     HAL_UART_AbortReceive(huart_);
     return HAL_UARTEx_ReceiveToIdle_IT(huart_, rxBuffer_, RX_BUFFER_SIZE) == HAL_OK;
+
+
 }
 
 uint16_t UartEndpoint::SendCommand(const uint8_t* command, size_t length) {
@@ -75,11 +77,19 @@ uint16_t UartEndpoint::SendCommand(const uint8_t* command, size_t length) {
 // Can be called from any task or from another endpoint
 // ============================================================
 int UartEndpoint::write(const uint8_t* data, size_t length) {
+
+	size_t  written=0;
+
     if (data == nullptr || length == 0) {
         return 0;
     }
 
-    size_t written = xStreamBufferSend(txStream_, data, length, 0);
+    size_t available = xStreamBufferSpacesAvailable(txStream_);
+    if (available >= length) {
+        written = xStreamBufferSend(txStream_, data, length, 0);
+    } else {
+    	written = -length;
+    }
 
     // Wake TX task if it's waiting - cast to TaskHandle_t
     if (written > 0 && txTaskHandle_ != nullptr) {
@@ -114,18 +124,70 @@ void UartEndpoint::TxTaskEntry(void* arg) {
 // ============================================================
 // RX TASK - Processes data received by ISR
 // ============================================================
+//void UartEndpoint::rxTaskLoop() {
+//    uint8_t buffer[RX_BUFFER_SIZE];
+//
+//    while (true) {
+//        // Block until data available from ISR
+//        size_t count = xStreamBufferReceive(rxStream_, buffer, RX_BUFFER_SIZE, portMAX_DELAY);
+//
+//        if (count > 0) {
+//            if (commMode_ == DevCommMode::Transparent && destEndpoint_ != nullptr) {
+//                destEndpoint_->write(buffer, count);
+//            } else {
+//                processRxData(buffer, count);
+//            }
+//        }
+//    }
+//}
+
+// UartEndpoint.cpp
 void UartEndpoint::rxTaskLoop() {
     uint8_t buffer[RX_BUFFER_SIZE];
 
     while (true) {
-        // Block until data available from ISR
         size_t count = xStreamBufferReceive(rxStream_, buffer, RX_BUFFER_SIZE, portMAX_DELAY);
+        if (count == 0) continue;
 
-        if (count > 0) {
-            if (commMode_ == DevCommMode::Transparent && destEndpoint_ != nullptr) {
-                destEndpoint_->write(buffer, count);
-            } else {
-                processRxData(buffer, count);
+        // Transparent mode - no framing
+        if (commMode_ == DevCommMode::Transparent && destEndpoint_ != nullptr) {
+            destEndpoint_->write(buffer, count);
+            continue;
+        }
+
+        // Timeout stale partial data
+        if (rxAccumLen_ > 0) {
+            TickType_t elapsed = xTaskGetTickCount() - lastRxTime_;
+            if (elapsed > pdMS_TO_TICKS(RX_PARTIAL_TIMEOUT_MS)) {
+                printf("%s: Partial timeout, discarding %u bytes\r\n",
+                		taskName_, (unsigned)rxAccumLen_);
+                rxAccumLen_ = 0;
+            }
+        }
+
+        // Append new data
+        if (count > RX_ACCUMULATE_SIZE - rxAccumLen_) {
+            printf("%s: RX overflow, resetting\r\n", taskName_);
+            rxAccumLen_ = 0;
+        }
+        memcpy(&rxAccumBuf_[rxAccumLen_], buffer, count);
+        rxAccumLen_ += count;
+        lastRxTime_ = xTaskGetTickCount();
+
+        // Drain all complete messages
+        size_t offset = 0;
+        while (offset < rxAccumLen_) {
+            size_t consumed = processRxData(&rxAccumBuf_[offset],
+                                            rxAccumLen_ - offset);
+            if (consumed == 0) break;
+            offset += consumed;
+        }
+
+        // Compact leftover
+        if (offset > 0) {
+            rxAccumLen_ -= offset;
+            if (rxAccumLen_ > 0) {
+                memmove(rxAccumBuf_, &rxAccumBuf_[offset], rxAccumLen_);
             }
         }
     }

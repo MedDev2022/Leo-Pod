@@ -22,7 +22,7 @@ void CLI::Init() {
     else printf("CLI receiver init success\n");
 }
 
-void CLI::processRxData(const uint8_t* data, uint16_t length) {
+size_t CLI::processRxData(const uint8_t* data, size_t length) {
    // uint8_t byte;
 
     // Handle transparent mode (shouldn't reach here, but just in case)

@@ -41,7 +41,7 @@ public:
 
 protected:
     // Override the task-based processing
-    void processRxData(const uint8_t* data, uint16_t length) override;
+    size_t processRxData(const uint8_t* data, size_t length) override;
 
 
 

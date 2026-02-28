@@ -52,11 +52,14 @@ static int transmit(const char* data, int len) {
     if (s_debugUart == NULL || len <= 0) {
         return 0;
     }
-    
+
     /* Use blocking transmit - simple and reliable for debug */
-    HAL_UART_Transmit(s_debugUart, (uint8_t*)data, (uint16_t)len, HAL_MAX_DELAY);
+    //HAL_UART_Transmit(s_debugUart, (uint8_t*)data, (uint16_t)len, HAL_MAX_DELAY);
+    HAL_UART_Transmit_IT(s_debugUart, (uint8_t*)data, (uint16_t)len);
     return len;
 }
+
+
 
 /* ============================================================================
  * PUBLIC FUNCTIONS
